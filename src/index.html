@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'">
+<title>M Ref</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage">
+  <div id="world">
+    <div id="items"></div>
+    <svg id="arrows" width="1" height="1"></svg>
+  </div>
+  <div id="groups"></div>
+  <div id="frame" hidden>
+    <i class="h" data-h="0"></i><i class="h" data-h="1"></i><i class="h" data-h="2"></i><i class="h" data-h="3"></i>
+    <i class="rot" title="Kéo để xoay (giữ Shift: nhảy 15°)"></i>
+  </div>
+  <div id="marquee" hidden></div>
+
+  <div id="empty">
+    <h1>Thả ảnh vào đây</h1>
+    <p>PNG, JPG, GIF động — hoặc dán bằng Ctrl+V</p>
+    <ul>
+      <li><kbd>Chuột phải</kbd> mở menu</li>
+      <li><kbd>Giữ chuột phải + kéo</kbd> di chuyển cửa sổ</li>
+      <li><kbd>Lăn chuột</kbd> phóng to / thu nhỏ</li>
+      <li><kbd>Chuột giữa</kbd> hoặc <kbd>Space</kbd> + kéo: di chuyển khung nhìn</li>
+      <li><kbd>Ctrl+F</kbd> toàn màn hình</li>
+    </ul>
+  </div>
+</div>
+
+<div id="tbar" hidden>
+  <button class="tb" data-t="bold" title="Đậm (Ctrl+B)"><b>B</b></button>
+  <button class="tb" data-t="italic" title="Nghiêng (Ctrl+I)"><i>I</i></button>
+  <button class="tb" data-t="underline" title="Gạch dưới (Ctrl+U)"><u>U</u></button>
+  <span class="sep"></span>
+  <button class="tb" data-t="smaller" title="Chữ nhỏ hơn">−</button>
+  <span class="size" id="tsize">22</span>
+  <button class="tb" data-t="bigger" title="Chữ to hơn">+</button>
+  <span class="sep"></span>
+  <button class="sw" data-c="#FFFFFF" style="background:#FFFFFF" title="Trắng"></button>
+  <button class="sw" data-c="#FFD66B" style="background:#FFD66B" title="Vàng"></button>
+  <button class="sw" data-c="#E5383B" style="background:#E5383B" title="Đỏ"></button>
+  <button class="sw" data-c="#5BD1FF" style="background:#5BD1FF" title="Xanh"></button>
+  <button class="sw" data-c="#1F2126" style="background:#1F2126" title="Đen"></button>
+  <label class="sw pick" title="Chọn màu khác"><input type="color" id="tcolor" value="#ffffff"></label>
+</div>
+
+<div class="corner">
+  <button class="ibtn" id="pin" title="Luôn nằm trên các cửa sổ khác (Ctrl+T)" aria-label="Luôn nằm trên">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l-1 6 4 4v2H6v-2l4-4z"/></svg>
+  </button>
+</div>
+
+<div id="info"></div>
+<div class="credit">Created by Mondiro</div>
+
+<div id="updnote" hidden></div>
+<div id="toast" hidden></div>
+<div id="menu" hidden></div>
+<div id="drop" hidden><span>Thả để thêm ảnh</span></div>
+<div id="modal" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>

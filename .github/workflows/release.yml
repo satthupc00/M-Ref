@@ -1,0 +1,41 @@
+name: Release
+
+# Mỗi lần push: nếu version trong package.json chưa có bản phát hành thì build bản cài Windows và tạo Release.
+on:
+  push:
+    branches: [main, 'claude/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Kiểm tra version
+        id: v
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if gh release view "v$VERSION" >/dev/null 2>&1; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Build
+        if: steps.v.outputs.exists == 'false'
+        run: |
+          npm ci
+          npx electron-builder --win --publish never
+      - name: Tạo Release
+        if: steps.v.outputs.exists == 'false'
+        shell: bash
+        run: |
+          node scripts/release-notes.js > notes.md
+          gh release create "v${{ steps.v.outputs.version }}" dist/*.exe dist/*.exe.blockmap dist/latest.yml \
+            --title "M Ref v${{ steps.v.outputs.version }}" --notes-file notes.md --target "$GITHUB_SHA" --latest

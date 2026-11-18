@@ -1,0 +1,56 @@
+{
+  "name": "m-ref",
+  "productName": "M Ref",
+  "version": "1.0.0",
+  "description": "Bảng ảnh tham khảo cho artist",
+  "author": "Mondiro",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --publish never"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
+  },
+  "devDependencies": {
+    "electron": "^45.3.4",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "com.mondiro.mref",
+    "productName": "M Ref",
+    "files": [
+      "main.js",
+      "preload.js",
+      "whatsnew.json",
+      "src/**/*",
+      "build/icon.png"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico",
+      "artifactName": "M-Ref-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false
+    },
+    "fileAssociations": [
+      {
+        "ext": "mref",
+        "name": "M Ref Board",
+        "description": "Bảng tham khảo M Ref",
+        "icon": "build/icon.ico"
+      }
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "satthupc00",
+      "repo": "M-Ref",
+      "releaseType": "release"
+    }
+  }
+}
