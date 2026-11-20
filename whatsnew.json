@@ -1,10 +1,16 @@
 {
-  "version": "1.0.1",
+  "version": "1.0.2",
   "date": "2026-11-20",
-  "new": [],
+  "new": [
+    "Giữ Ctrl + kéo để xoay ảnh đang chọn",
+    "Giữ Ctrl+Shift + kéo ngang để scale",
+    "Giữ Alt+Shift + kéo ngang để lật trái phải, kéo dọc để lật trên dưới",
+    "Nút kiểm tra cập nhật nằm cạnh nút ghim ở góc phải trên"
+  ],
   "improved": [
-    "Group hiển thị bằng tấm nền đen bao quanh các ảnh, không còn nhãn tên",
-    "Bấm vào ảnh trong group để thao tác riêng ảnh đó; bấm vào nền group để thao tác cả group"
+    "Mép nền của group dày hơn",
+    "Bỏ khung viền đỏ khi chọn ảnh",
+    "Khi cập nhật, app tự cài và tự mở lại, không cần bấm thêm"
   ],
   "fixed": []
 }

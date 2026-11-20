@@ -38,7 +38,7 @@ button:not(:disabled):active{transform:scale(.95);transition-duration:.06s}
 .gpanel:hover{box-shadow:0 0 0 calc(1.5px*var(--iz,1)) #5A5F69}
 .gpanel.sel{box-shadow:0 0 0 calc(1.5px*var(--iz,1)) var(--red)}
 
-#frame{position:absolute;left:0;top:0;border:2px solid var(--red);pointer-events:none}
+#frame{position:absolute;left:0;top:0;border:0 solid var(--red);pointer-events:none}
 .h{position:absolute;width:10px;height:10px;background:#fff;border:1.5px solid var(--red);border-radius:2px;pointer-events:auto;
   transition:transform var(--t-med) var(--ease-spring)}
 .h:hover{transform:scale(1.35)}
@@ -49,7 +49,7 @@ button:not(:disabled):active{transform:scale(.95);transition-duration:.06s}
 .rot:hover{transform:scale(1.25)}
 .rot::after{content:'';position:absolute;left:50%;top:12px;width:1.5px;height:17px;background:var(--red);margin-left:-.75px;pointer-events:none}
 #frame.editing .h,#frame.editing .rot{display:none}
-#frame.editing{border-style:dashed}
+#frame.editing{border-width:1.5px;border-style:dashed}
 #marquee{position:absolute;border:1px solid var(--red);background:rgba(229,56,59,.08);pointer-events:none}
 
 /* ---------- empty state ---------- */
@@ -67,9 +67,15 @@ body:hover .corner,.corner:focus-within{opacity:1}
 .ibtn{width:30px;height:30px;border-radius:6px;border:1px solid var(--line);background:rgba(31,33,38,.85);color:var(--muted);
   display:grid;place-items:center;cursor:pointer;padding:0}
 .ibtn:hover{border-color:var(--red);color:#fff;transform:translateY(-1px)}
-.ibtn svg{width:16px;height:16px;transition:transform var(--t-med) var(--ease-spring);transform:rotate(45deg)}
+.ibtn svg{width:16px;height:16px;transition:transform var(--t-med) var(--ease-spring)}
+#pin svg{transform:rotate(45deg)}
+#upd.spin svg{animation:spin 1s linear infinite}
+#upd.latest{color:var(--green)}
+#upd.new{color:var(--green);border-color:var(--green);animation:glow 1.2s ease-in-out infinite}
+@keyframes glow{50%{box-shadow:0 0 0 5px rgba(46,184,114,.28)}}
+@keyframes spin{to{transform:rotate(360deg)}}
 .ibtn.on{color:#fff;background:var(--red);border-color:var(--red)}
-.ibtn.on svg{transform:none}
+#pin.on svg{transform:none}
 .credit{position:absolute;right:12px;bottom:7px;color:#6B707A;font-size:11px;white-space:nowrap;pointer-events:none}
 #info{position:absolute;left:10px;bottom:7px;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   color:#6B707A;font-size:11px;font-variant-numeric:tabular-nums;pointer-events:none}

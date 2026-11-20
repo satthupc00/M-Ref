@@ -112,7 +112,7 @@ function applyView() {
   renderOverlays();
 }
 
-const GPAD = 14;
+const GPAD = 32;
 function renderGroups() {
   const have = new Map([...gbgEl.children].map((el) => [el.dataset.g, el]));
   for (const g of doc.groups) {
@@ -560,7 +560,17 @@ stage.addEventListener('pointerdown', (e) => {
   else if (e.button === 0) {
     const w = s2w(e.clientX, e.clientY);
     const start = () => selItems().map((it) => ({ it, cx: it.cx, cy: it.cy, w: it.w, h: it.h, rot: it.rot, size: it.size }));
-    if (t.classList.contains('h') && frameInfo) {
+    const mod = e.ctrlKey && e.shiftKey ? 'mscale' : e.ctrlKey ? 'rotate' : e.altKey && e.shiftKey ? 'mflip' : null;
+    if (mod) {
+      e.preventDefault();
+      const mel = t.closest('.item'), mpn = t.closest('.gpanel');
+      if (mel && !sel.includes(mel.dataset.id)) setSel([mel.dataset.id]);
+      else if (!mel && mpn) { const ids = doc.items.filter((i) => i.group === mpn.dataset.g).map((i) => i.id); if (!ids.every((id) => sel.includes(id))) setSel(ids); }
+      if (sel.length) {
+        const b = aabb(selItems());
+        drag = { type: mod, x: e.clientX, y: e.clientY, cx: b.cx, cy: b.cy, ax: b.cx, ay: b.cy, a0: Math.atan2(w.y - b.cy, w.x - b.cx), start: start() };
+      }
+    } else if (t.classList.contains('h') && frameInfo) {
       const k = +t.dataset.h, sg = [[-1, -1], [1, -1], [1, 1], [-1, 1]][(k + 2) % 4];
       const a = rotv(sg[0] * frameInfo.w / 2, sg[1] * frameInfo.h / 2, frameInfo.rot);
       const ax = frameInfo.cx + a.x, ay = frameInfo.cy + a.y;
@@ -599,8 +609,11 @@ stage.addEventListener('pointermove', (e) => {
     d.moved = true;
     for (const s of d.start) { s.it.cx = s.cx + dx / view.z; s.it.cy = s.cy + dy / view.z; place(s.it, els.get(s.it.id)); }
     renderOverlays();
-  } else if (d.type === 'scale') {
-    const k = Math.max(0.01, Math.hypot(w.x - d.ax, w.y - d.ay) / d.d0);
+  } else if (d.type === 'mflip') {
+    const dx = e.clientX - d.x, dy = e.clientY - d.y;
+    if (!d.done && Math.max(Math.abs(dx), Math.abs(dy)) > 24) { d.done = true; flip(Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v'); }
+  } else if (d.type === 'scale' || d.type === 'mscale') {
+    const k = d.type === 'mscale' ? clamp(Math.exp((e.clientX - d.x) * 0.006), 0.01, 100) : Math.max(0.01, Math.hypot(w.x - d.ax, w.y - d.ay) / d.d0);
     for (const s of d.start) {
       const it = s.it;
       it.cx = d.ax + (s.cx - d.ax) * k; it.cy = d.ay + (s.cy - d.ay) * k;
@@ -610,7 +623,7 @@ stage.addEventListener('pointermove', (e) => {
     d.moved = true; renderOverlays();
   } else if (d.type === 'rotate') {
     let deg = (Math.atan2(w.y - d.cy, w.x - d.cx) - d.a0) * 180 / Math.PI;
-    if (e.shiftKey) deg = Math.round(deg / 15) * 15;
+    if (e.shiftKey && !e.ctrlKey) deg = Math.round(deg / 15) * 15;
     for (const s of d.start) {
       const p = rotv(s.cx - d.cx, s.cy - d.cy, deg);
       s.it.cx = d.cx + p.x; s.it.cy = d.cy + p.y; s.it.rot = s.rot + deg;
@@ -753,7 +766,6 @@ function menuSpec() {
       { label: 'Hoàn tác', cmd: 'undo', key: 'Ctrl+Z', off: !undoStack.length }, { label: 'Làm lại', cmd: 'redo', key: 'Ctrl+Y', off: !redoStack.length }] },
     { label: 'Luôn nằm trên', cmd: 'pin', key: 'Ctrl+T', chk: settings.alwaysOnTop },
     { label: 'Cài đặt…', cmd: 'settings' },
-    { label: updateLabel(), cmd: 'update', off: upd.state === 'checking' || upd.state === 'downloading', cls: upd.state === 'available' || upd.state === 'downloaded' ? 'new' : '' },
     { label: 'Thoát', cmd: 'quit', key: 'Ctrl+Q' },
   ];
 }
@@ -844,6 +856,8 @@ function openSettings() {
       <kbd>Lăn chuột</kbd><span>Phóng to / thu nhỏ</span><kbd>Chuột giữa / Space + kéo</kbd><span>Di chuyển khung nhìn</span>
       <kbd>Bấm đúp vào ảnh</kbd><span>Phóng ảnh đó ra giữa</span><kbd>Shift + bấm</kbd><span>Chọn thêm / bỏ chọn</span>
       <kbd>Bấm vào nền group</kbd><span>Chọn cả group</span><kbd>Shift khi xoay</kbd><span>Xoay theo nấc 15°</span>
+      <kbd>Ctrl + kéo</kbd><span>Xoay ảnh đang chọn</span><kbd>Ctrl+Shift + kéo ngang</kbd><span>Scale ảnh đang chọn</span>
+      <kbd>Alt+Shift + kéo ngang / dọc</kbd><span>Lật trái phải / lật trên dưới</span>
       <kbd>Ctrl+F</kbd><span>Toàn màn hình</span><kbd>Ctrl+T</kbd><span>Luôn nằm trên</span>
       <kbd>Ctrl+Z / Ctrl+Y</kbd><span>Hoàn tác / làm lại</span><kbd>Ctrl+D</kbd><span>Nhân đôi</span>
     </div></div>`);
@@ -858,23 +872,39 @@ function openSettings() {
 }
 
 /* ================= cập nhật ================= */
+const updBtn = $('#upd');
+function syncUpd() {
+  updBtn.classList.toggle('spin', upd.state === 'checking' || upd.state === 'downloading');
+  updBtn.classList.toggle('new', upd.state === 'available' || upd.state === 'downloaded');
+  updBtn.classList.toggle('latest', upd.state === 'latest');
+  const tip = { checking: 'Đang kiểm tra…', available: `Có bản mới v${upd.version} – bấm để cập nhật`, downloading: `Đang tải bản mới ${upd.percent || 0}%`, downloaded: 'Đang cài bản mới…', latest: 'Đã là bản mới nhất' }[upd.state];
+  updBtn.title = 'Kiểm tra cập nhật' + (tip ? ' · ' + tip : '');
+  const note = { available: [`Có bản mới v${upd.version}`, 'Cập nhật'], downloading: [`Đang tải bản mới ${upd.percent || 0}%`], downloaded: ['Đang cài bản mới, app sẽ tự mở lại…'] }[upd.state];
+  updnote.hidden = !note;
+  if (note) updnote.innerHTML = `<i class="dot"></i><span>${esc(note[0])}</span>${note[1] ? `<button class="btn primary">${note[1]}</button>` : ''}`;
+}
 async function updateCmd() {
-  if (upd.state === 'available') return api.downloadUpdate();
+  if (upd.state === 'checking' || upd.state === 'downloading') return;
+  if (upd.state === 'available') {            // bấm 1 lần: tải xong tự cài và tự mở lại
+    if (!(await okToDiscard())) return;
+    upd.state = 'downloading'; upd.percent = 0; syncUpd();
+    return api.downloadUpdate();
+  }
   if (upd.state === 'downloaded') { if (await okToDiscard()) api.installUpdate(); return; }
   manualCheck = true;
   const r = await api.checkUpdate();
   if (r === 'dev') { manualCheck = false; toast('Chỉ kiểm tra được ở bản đã cài đặt'); }
 }
-api.onUpdate((u) => {
+api.onUpdate(async (u) => {
   upd = { ...upd, ...u };
   if (u.state === 'latest') { upd.version = null; if (manualCheck) toast('Bạn đang dùng bản mới nhất'); manualCheck = false; }
   if (u.state === 'error') { if (manualCheck) toast('Không kiểm tra được, thử lại sau'); manualCheck = false; upd.state = 'idle'; }
   if (u.state === 'available') manualCheck = false;
-  const note = { available: [`Có bản mới v${upd.version}`, 'Cập nhật'], downloading: [`Đang tải bản mới ${upd.percent || 0}%`], downloaded: ['Đã tải xong bản mới', 'Khởi động lại'] }[upd.state];
-  updnote.hidden = !note;
-  if (note) updnote.innerHTML = `<i class="dot"></i><span>${esc(note[0])}</span>${note[1] ? `<button class="btn primary">${note[1]}</button>` : ''}`;
+  syncUpd();
+  if (u.state === 'downloaded' && await okToDiscard()) api.installUpdate();
 });
 updnote.addEventListener('click', (e) => { if (e.target.closest('button')) updateCmd(); });
+updBtn.addEventListener('click', updateCmd);
 
 /* ================= bàn phím ================= */
 window.addEventListener('keydown', (e) => {
