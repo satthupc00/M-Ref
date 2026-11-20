@@ -79,7 +79,7 @@ function makeEl(it) {
   } else {
     el.spellcheck = false;
     el.addEventListener('input', () => onTextInput(it.id));
-    el.addEventListener('blur', () => { if (editingId === it.id && !tbar.contains(document.activeElement)) endEdit(); });
+    el.addEventListener('blur', (e) => { if (editingId === it.id && !(e.relatedTarget && tbar.contains(e.relatedTarget))) endEdit(); });
   }
   return el;
 }
@@ -130,14 +130,7 @@ function renderGroups() {
   for (const el of have.values()) el.remove();
 }
 
-function arrowBox(it, other) {     // ib: khung ảnh; gb: mép nền group nếu ảnh kia nằm ngoài group
-  const ib = aabb([it]); let gb = ib;
-  if (it.group && (!other || other.group !== it.group)) {
-    const g = aabb(doc.items.filter((i) => i.group === it.group));
-    gb = { x: g.x - GPAD, y: g.y - GPAD, w: g.w + GPAD * 2, h: g.h + GPAD * 2 };
-  }
-  return { ib, gb };
-}
+function arrowBox(it) { const ib = aabb([it]); return { ib, gb: ib }; }
 function route(A, B, gap) {
   const a = A.gb, b = B.gb;
   const acx = A.ib.x + A.ib.w / 2, acy = A.ib.y + A.ib.h / 2, bcx = B.ib.x + B.ib.w / 2, bcy = B.ib.y + B.ib.h / 2;
@@ -193,7 +186,8 @@ function renderArrows() {
 let frameInfo = null;
 function renderSel() {
   const its = selItems();
-  if (!its.length) { frame.hidden = true; tbar.hidden = true; frameInfo = null; return; }
+  const sg = selectedGroup();
+  if (!its.length || (sg && doc.items.filter((i) => i.group === sg.id).length === its.length)) { frame.hidden = true; tbar.hidden = true; frameInfo = null; return; }
   const b = aabb(its);
   frameInfo = its.length === 1 ? { cx: its[0].cx, cy: its[0].cy, w: its[0].w, h: its[0].h, rot: its[0].rot } : { cx: b.cx, cy: b.cy, w: b.w, h: b.h, rot: 0 };
   const c = w2s(frameInfo.cx, frameInfo.cy), w = Math.round(frameInfo.w * view.z), h = Math.round(frameInfo.h * view.z);
@@ -322,22 +316,25 @@ function onTextInput(id) {
   }
   renderOverlays();
 }
-function textCmd(cmd, val) {
+function textCmd(cmd, val, live) {            // live: đang rê trong bảng chọn màu, chưa ghi vào lịch sử hoàn tác
   const its = selItems(); if (its.length !== 1 || its[0].type !== 'text') return;
-  const it = its[0], el = els.get(it.id);
+  const it = its[0], el = els.get(it.id), s = getSelection();
   if (editingId === it.id) {
-    el.focus();
-    if (savedRange) { const s = getSelection(); s.removeAllRanges(); s.addRange(savedRange); }
-    document.execCommand(cmd, false, val); onTextInput(it.id); syncTbar();
+    if (!live) el.focus();
+    if (savedRange) { s.removeAllRanges(); s.addRange(savedRange); }
+    document.execCommand(cmd, false, val);
+    if (s.rangeCount && el.contains(s.anchorNode)) savedRange = s.getRangeAt(0).cloneRange();
+    onTextInput(it.id); syncTbar();
     return;
   }
-  el.contentEditable = 'true'; el.focus();
+  el.contentEditable = 'true'; if (!live) el.focus();
   const r = document.createRange(); r.selectNodeContents(el);
-  const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+  s.removeAllRanges(); s.addRange(r);
   document.execCommand(cmd, false, val);
-  s.removeAllRanges(); el.contentEditable = 'false'; el.blur();
-  it.html = sanitize(el.innerHTML); el._html = null;
-  commit(); render();
+  s.removeAllRanges(); el.contentEditable = 'false'; if (!live) el.blur();
+  it.html = sanitize(el.innerHTML); el._html = it.html;
+  if (!live) commit();
+  render();
 }
 function textSize(dir) {
   const its = selItems(); if (its.length !== 1 || its[0].type !== 'text') return;
@@ -359,11 +356,17 @@ tbar.addEventListener('click', (e) => {
   if (b) { const t = b.dataset.t; if (t === 'smaller') textSize(-1); else if (t === 'bigger') textSize(1); else textCmd(t); }
   if (c) setTextColor(c.dataset.c);
 });
-$('#tcolor').addEventListener('change', (e) => setTextColor(e.target.value));
-function setTextColor(c) {
-  settings.textColor = c; api.setSettings({ textColor: c });
+$('#tcolor').addEventListener('input', (e) => setTextColor(e.target.value, true));
+$('#tcolor').addEventListener('change', (e) => {
+  setTextColor(e.target.value, true);
+  const el = editingId && els.get(editingId);
+  if (el) { el.focus(); if (savedRange) { const s = getSelection(); s.removeAllRanges(); s.addRange(savedRange); } }
+  else { commit(); render(); }
+});
+function setTextColor(c, live) {
+  settings.textColor = c; if (!live) api.setSettings({ textColor: c });
   const n = parseInt(c.slice(1), 16);
-  textCmd('foreColor', `rgb(${n >> 16}, ${(n >> 8) & 255}, ${n & 255})`);
+  textCmd('foreColor', `rgb(${n >> 16}, ${(n >> 8) & 255}, ${n & 255})`, live);
 }
 document.addEventListener('selectionchange', () => {
   if (!editingId) return;
@@ -564,6 +567,7 @@ function loadData(res) {
   resetBoard(parsed); filePath = res.path;
   render();
   if (parsed.view) { view = parsed.view; applyView(); } else fitView(doc.items, 1);
+  addRecent();
 }
 async function save(as) {
   endEdit();
@@ -571,7 +575,7 @@ async function save(as) {
     const data = await buildFile();
     const p = await api.saveFile(as ? null : filePath, data, filePath ? filePath.split(/[\\/]/).pop() : 'ref.mref');
     if (!p) return false;
-    filePath = p; dirty = false; updateInfo(); toast('Đã lưu');
+    filePath = p; dirty = false; updateInfo(); toast('Đã lưu'); addRecent();
     return true;
   } catch { toast('Không lưu được file'); return false; }
 }
@@ -583,6 +587,55 @@ async function okToDiscard() {
   return r === 'no';
 }
 async function openFile() { if (await okToDiscard()) loadData(await api.openDialog()); }
+async function makeThumb() {
+  const W = 320, H = 200, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const x = cv.getContext('2d'); x.fillStyle = settings.bg || '#2B2D31'; x.fillRect(0, 0, W, H);
+  if (!doc.items.length) return cv.toDataURL('image/jpeg', 0.7);
+  const b = aabb(doc.items), k = Math.min((W - 16) / Math.max(b.w + GPAD * 2, 1), (H - 16) / Math.max(b.h + GPAD * 2, 1));
+  x.translate(W / 2 - b.cx * k, H / 2 - b.cy * k); x.scale(k, k);
+  x.fillStyle = '#000';
+  for (const g of doc.groups) { const m = doc.items.filter((i) => i.group === g.id); if (m.length) { const r = aabb(m); x.fillRect(r.x - GPAD, r.y - GPAD, r.w + GPAD * 2, r.h + GPAD * 2); } }
+  for (const it of doc.items) {
+    x.save(); x.translate(it.cx, it.cy); x.rotate(it.rot * Math.PI / 180); x.scale(it.fx ? -1 : 1, it.fy ? -1 : 1);
+    if (it.type === 'image') {
+      const img = els.get(it.id) && els.get(it.id).querySelector('img');
+      try { await img.decode(); x.drawImage(img, -it.w / 2, -it.h / 2, it.w, it.h); } catch { /* ảnh lỗi: bỏ qua */ }
+    } else { x.fillStyle = it.color; x.globalAlpha = 0.7; x.fillRect(-it.w / 2, -it.h * 0.2, it.w, it.h * 0.4); }
+    x.restore();
+  }
+  return cv.toDataURL('image/jpeg', 0.7);
+}
+async function addRecent() {
+  if (!filePath) return;
+  const p = filePath; let thumb = '';
+  try { thumb = await makeThumb(); } catch { /* không có ảnh xem trước */ }
+  const list = (Array.isArray(settings.recent) ? settings.recent : []).filter((r) => r && r.path !== p);
+  list.unshift({ path: p, name: p.split(/[\\/]/).pop(), thumb });
+  settings.recent = list.slice(0, 10); api.setSettings({ recent: settings.recent });
+}
+async function openRecent(p) {
+  if (!(await okToDiscard())) return;
+  let res = null;
+  try { res = await api.readFile(p); } catch { /* file đã bị xoá / đổi chỗ */ }
+  if (res) return loadData(res);
+  settings.recent = (settings.recent || []).filter((r) => r.path !== p); api.setSettings({ recent: settings.recent });
+  toast('Không tìm thấy file này nữa'); showWelcome();
+}
+function showWelcome() {
+  const rec = (Array.isArray(settings.recent) ? settings.recent : []).filter((r) => r && typeof r.path === 'string').slice(0, 10);
+  const d = showModal(`<header><img class="wicon" src="../build/icon.png" alt=""><span class="mname"><span class="m">M</span> <span class="a">Ref</span></span><span class="sub2">v${esc(appVersion)}</span><button class="x" title="Đóng (Esc)">✕</button></header>
+    <div class="body"><div class="wacts">
+      <button class="wcard" data-w="new" autofocus><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>Bảng mới</span></button>
+      <button class="wcard" data-w="open"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span>Mở file…</span></button></div>
+    <h3>File gần đây</h3>
+    ${rec.length ? `<div class="recent">${rec.map((r, i) => `<button class="rc" data-r="${i}" title="${esc(r.path)}"><span class="th">${/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(r.thumb || '') ? `<img src="${r.thumb}" alt="">` : ''}</span><span class="nm">${esc(String(r.name || '').replace(/\.mref$/i, ''))}</span></button>`).join('')}</div>` : '<div class="norec">Chưa có file nào. File bạn lưu hoặc mở sẽ hiện ở đây.</div>'}</div>`);
+  d.classList.add('wide');
+  d.addEventListener('click', (e) => {
+    const w = e.target.closest('[data-w]'), r = e.target.closest('[data-r]');
+    if (w) { closeModal(); if (w.dataset.w === 'open') openFile(); else if (doc.items.length || filePath) newBoard(); }
+    if (r) { closeModal(); openRecent(rec[+r.dataset.r].path); }
+  });
+}
 async function openPath(p) { if (p && await okToDiscard()) loadData(await api.readFile(p)); }
 async function newBoard() { if (!(await okToDiscard())) return; resetBoard(null); filePath = null; render(); fitView([], 1); }
 async function quit() { if (await okToDiscard()) api.closeNow(); }
@@ -769,7 +822,7 @@ document.addEventListener('paste', (e) => {
 
 /* ================= menu chuột phải ================= */
 const CMD = {
-  open: openFile, save: () => save(false), saveAs: () => save(true), newBoard,
+  open: openFile, home: showWelcome, save: () => save(false), saveAs: () => save(true), newBoard,
   addImages: async () => addImages(await api.pickImages(), viewCenter()),
   addText: () => addText(s2w(lastMouse.x, lastMouse.y)), arrow: () => startLink(false), arrow2: () => startLink(true), arrowBoth: toggleArrowBoth,
   alL: () => alignCmd('l'), alCH: () => alignCmd('ch'), alR: () => alignCmd('r'), alT: () => alignCmd('t'), alCV: () => alignCmd('cv'), alB: () => alignCmd('b'),
@@ -794,6 +847,7 @@ function menuSpec() {
   const S = { sep: true };
   return [
     { label: 'Mở file…', cmd: 'open', key: 'Ctrl+O' },
+    { label: 'File gần đây…', cmd: 'home' },
     { label: 'Lưu', cmd: 'save', key: 'Ctrl+S' },
     { label: 'Lưu thành…', cmd: 'saveAs', key: 'Ctrl+Shift+S' },
     { label: 'Bảng mới', cmd: 'newBoard', key: 'Ctrl+N' },
@@ -876,12 +930,12 @@ function ask(title, text, buttons) {
   });
 }
 const fmtDate = (s) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || ''); return m ? `${m[3]}/${m[2]}/${m[1]}` : ''; };
-function openWhatsNew() {
+function openWhatsNew(onClose) {
   const w = whatsnew || { version: appVersion, new: [], improved: [], fixed: [] };
   const sec = (t, a) => (a && a.length ? `<h3>${t}</h3><ul>${a.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '');
   const d = showModal(`<header>What's new <span class="sub2">v${esc(w.version)}${w.date ? ' · ' + fmtDate(w.date) : ''}</span><button class="x" title="Đóng (Esc)">✕</button></header>` +
     `<div class="body">${upd.version && upd.state !== 'latest' ? `<div class="newver">Có bản mới v${esc(upd.version)} <button class="btn" data-upd>Cập nhật</button></div>` : ''}` +
-    `${sec('Mới', w.new)}${sec('Cải thiện', w.improved)}${sec('Sửa lỗi', w.fixed)}</div>`);
+    `${sec('Mới', w.new)}${sec('Cải thiện', w.improved)}${sec('Sửa lỗi', w.fixed)}</div>`, typeof onClose === 'function' ? onClose : null);
   const b = d.querySelector('[data-upd]'); if (b) b.onclick = () => { closeModal(); updateCmd(); };
 }
 const BGS = ['#2B2D31', '#1F2126', '#000000', '#4A4D55', '#8D929C', '#E8E9EC'];
@@ -1025,11 +1079,14 @@ window.addEventListener('keyup', (e) => { if (e.code === 'Space') { spaceDown = 
   applyLook(); pinBtn.classList.toggle('on', !!settings.alwaysOnTop);
   applyView(); render();
   if (init.openPath) loadData(await api.readFile(init.openPath));
+  const welcome = () => { if (!init.openPath) showWelcome(); };
+  let shownNews = false;
   if (init.packaged) {
-    if (settings.lastSeenVersion && settings.lastSeenVersion !== appVersion) openWhatsNew();   // vừa cập nhật xong: hiện bảng thông báo
+    if (settings.lastSeenVersion && settings.lastSeenVersion !== appVersion) { shownNews = true; openWhatsNew(welcome); }   // vừa cập nhật xong: hiện bảng thông báo
     if (settings.lastSeenVersion !== appVersion) { settings.lastSeenVersion = appVersion; api.setSettings({ lastSeenVersion: appVersion }); }
     setTimeout(() => api.checkUpdate(), 2500);
   }
+  if (!shownNews) welcome();
 })();
 
 /* Chạy thử trong trình duyệt (không có Electron): thay các lệnh hệ thống bằng bản giả */

@@ -1,17 +1,14 @@
 {
-  "version": "1.0.3",
+  "version": "1.0.4",
   "date": "2026-11-20",
   "new": [
-    "Tạo mũi tên nối kiểu mới: chọn 1 ảnh, chuột phải chọn Tạo mũi tên nối, rồi bấm vào ảnh thứ 2",
-    "Mũi tên 2 chiều",
-    "Ctrl + phím mũi tên để căn mép trái, phải, trên, dưới"
+    "Màn hình bắt đầu khi mở app: tạo bảng mới, mở file, hoặc mở lại 1 trong 10 file gần đây (có ảnh xem trước)",
+    "Mục File gần đây trong menu chuột phải"
   ],
   "improved": [
-    "Mũi tên đi theo đường gấp khúc bo góc, nối từ mép ảnh này sang mép ảnh kia",
-    "Khung chọn ảnh là 1 khung mảnh có chấm tròn ở góc và cạnh, bỏ móc tròn trên đầu",
-    "Bấm đúp vào ảnh phóng ảnh vừa khít màn hình, bấm đúp lần nữa để quay lại"
+    "Chọn cả group chỉ hiện viền quanh nền group, không còn khung 8 chấm bên trong",
+    "Màu chữ đổi ngay trong lúc đang chọn màu tự do",
+    "Mũi tên nối thẳng vào ảnh nằm trong group, không dừng ở mép group"
   ],
-  "fixed": [
-    "Bấm đúp vào ảnh hoặc chữ không có tác dụng"
-  ]
+  "fixed": []
 }
