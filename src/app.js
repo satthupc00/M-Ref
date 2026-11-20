@@ -22,6 +22,7 @@ let clip = null;
 let settings = { alwaysOnTop: true, opacity: 1, bg: '#2B2D31', grid: true, textColor: '#E8E9EC', lastSeenVersion: '' };
 let appVersion = '', whatsnew = null;
 let upd = { state: 'idle' }, manualCheck = false;
+let link = null;                   // {from, both} khi đang tạo mũi tên nối
 let drag = null, spaceDown = false, lastMouse = { x: innerWidth / 2, y: innerHeight / 2 };
 
 const CLIP_MARK = '​M Ref';
@@ -129,27 +130,62 @@ function renderGroups() {
   for (const el of have.values()) el.remove();
 }
 
-function edgePoint(it, target, gap) {
-  const d = rotv(target.x - it.cx, target.y - it.cy, -it.rot);
-  const hw = it.w / 2 + gap, hh = it.h / 2 + gap;
-  const t = Math.min(d.x ? hw / Math.abs(d.x) : Infinity, d.y ? hh / Math.abs(d.y) : Infinity);
-  if (!(t < 1)) return null;
-  return { x: it.cx + (target.x - it.cx) * t, y: it.cy + (target.y - it.cy) * t };
+function arrowBox(it, other) {     // ib: khung ảnh; gb: mép nền group nếu ảnh kia nằm ngoài group
+  const ib = aabb([it]); let gb = ib;
+  if (it.group && (!other || other.group !== it.group)) {
+    const g = aabb(doc.items.filter((i) => i.group === it.group));
+    gb = { x: g.x - GPAD, y: g.y - GPAD, w: g.w + GPAD * 2, h: g.h + GPAD * 2 };
+  }
+  return { ib, gb };
+}
+function route(A, B, gap) {
+  const a = A.gb, b = B.gb;
+  const acx = A.ib.x + A.ib.w / 2, acy = A.ib.y + A.ib.h / 2, bcx = B.ib.x + B.ib.w / 2, bcy = B.ib.y + B.ib.h / 2;
+  if (b.x >= a.x + a.w + gap * 3 || b.x + b.w <= a.x - gap * 3) {
+    const right = b.x >= a.x + a.w, sx = right ? a.x + a.w + gap : a.x - gap, ex = right ? b.x - gap : b.x + b.w + gap, mx = (sx + ex) / 2;
+    return [[sx, acy], [mx, acy], [mx, bcy], [ex, bcy]];
+  }
+  if (b.y >= a.y + a.h + gap * 3 || b.y + b.h <= a.y - gap * 3) {
+    const down = b.y >= a.y + a.h, sy = down ? a.y + a.h + gap : a.y - gap, ey = down ? b.y - gap : b.y + b.h + gap, my = (sy + ey) / 2;
+    return [[acx, sy], [acx, my], [bcx, my], [bcx, ey]];
+  }
+  return null;                                 // hai ảnh đè lên nhau
+}
+function arrowSvg(pts, both, cls, id) {
+  const z = view.z, hd = 14 / z, r = 16 / z;
+  let p = pts.filter((q, i) => !i || Math.hypot(q[0] - pts[i - 1][0], q[1] - pts[i - 1][1]) > 1e-6);
+  if (p.length < 2) return '';
+  const head = (tip, from) => {
+    const dx = tip[0] - from[0], dy = tip[1] - from[1], l = Math.hypot(dx, dy) || 1, ux = dx / l, uy = dy / l, h = Math.min(hd, l), hw = h * 0.42;
+    const bx = tip[0] - ux * h, by = tip[1] - uy * h;
+    return { poly: `<polygon points="${tip[0]},${tip[1]} ${bx - uy * hw},${by + ux * hw} ${bx + uy * hw},${by - ux * hw}"/>`, base: [tip[0] - ux * h * 0.9, tip[1] - uy * h * 0.9] };
+  };
+  const n = p.length, hEnd = head(p[n - 1], p[n - 2]), hStart = both ? head(p[0], p[1]) : null;
+  p = p.map((q) => [...q]); p[n - 1] = hEnd.base; if (hStart) p[0] = hStart.base;
+  let d = `M${p[0][0]},${p[0][1]}`;
+  for (let i = 1; i < n - 1; i++) {
+    const [x0, y0] = p[i - 1], [x1, y1] = p[i], [x2, y2] = p[i + 1];
+    const l1 = Math.hypot(x1 - x0, y1 - y0), l2 = Math.hypot(x2 - x1, y2 - y1), rr = Math.min(r, l1 / 2, l2 / 2);
+    if (!(rr > 0)) { d += `L${x1},${y1}`; continue; }
+    d += `L${x1 - (x1 - x0) / l1 * rr},${y1 - (y1 - y0) / l1 * rr}Q${x1},${y1} ${x1 + (x2 - x1) / l2 * rr},${y1 + (y2 - y1) / l2 * rr}`;
+  }
+  d += `L${p[n - 1][0]},${p[n - 1][1]}`;
+  return `<g ${id ? `data-a="${id}"` : ''} class="${cls}">` + (id ? `<path class="hit" d="${d}" stroke-width="${14 / z}"/>` : '') +
+    `<path class="vis" d="${d}" stroke-width="${2.5 / z}"/>${hEnd.poly}${hStart ? hStart.poly : ''}</g>`;
 }
 function renderArrows() {
-  const z = view.z, sw = 2.5 / z, head = 14 / z, gap = 6 / z;
+  const gap = 5 / view.z;
   let html = '';
   for (const a of doc.arrows) {
     const f = item(a.from), t = item(a.to); if (!f || !t) continue;
-    const p1 = edgePoint(f, { x: t.cx, y: t.cy }, gap), p2 = edgePoint(t, { x: f.cx, y: f.cy }, gap);
-    if (!p1 || !p2) continue;
-    const dx = p2.x - p1.x, dy = p2.y - p1.y, len = Math.hypot(dx, dy);
-    if (len < 4 / z || dx * (t.cx - f.cx) + dy * (t.cy - f.cy) <= 0) continue;   // hai ảnh đè nhau
-    const hd = Math.min(head, len * 0.8), ux = dx / len, uy = dy / len, bx = p2.x - ux * hd, by = p2.y - uy * hd, hw = hd * 0.42;
-    html += `<g data-a="${a.id}" class="${a.id === selArrow ? 'sel' : ''}">` +
-      `<line class="hit" x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke-width="${14 / z}"/>` +
-      `<line class="vis" x1="${p1.x}" y1="${p1.y}" x2="${bx}" y2="${by}" stroke-width="${sw}"/>` +
-      `<polygon points="${p2.x},${p2.y} ${bx - uy * hw},${by + ux * hw} ${bx + uy * hw},${by - ux * hw}"/></g>`;
+    const pts = route(arrowBox(f, t), arrowBox(t, f), gap);
+    if (pts) html += arrowSvg(pts, !!a.both, a.id === selArrow ? 'sel' : '', a.id);
+  }
+  const lf = link && item(link.from);
+  if (lf) {                                    // đang chờ bấm ảnh thứ 2: vẽ thử mũi tên theo con trỏ
+    const m = s2w(lastMouse.x, lastMouse.y), pt = { x: m.x, y: m.y, w: 0, h: 0 }, A = arrowBox(lf, null);
+    const pts = route(A, { ib: pt, gb: pt }, gap) || [[lf.cx, lf.cy], [m.x, m.y]];
+    html += arrowSvg(pts, link.both, 'preview', null);
   }
   arrowsEl.innerHTML = html;
 }
@@ -171,7 +207,7 @@ function renderSel() {
   tbar.hidden = false;
   $('#tsize').textContent = Math.round(txt.size);
   const tl = w2s(b.x, b.y), bl = w2s(b.x, b.y + b.h);
-  let top = tl.y - tbar.offsetHeight - (editingId ? 10 : 44);
+  let top = tl.y - tbar.offsetHeight - 14;
   if (top < 6) top = Math.min(innerHeight - tbar.offsetHeight - 6, bl.y + 12);
   tbar.style.left = clamp(tl.x, 6, Math.max(6, innerWidth - tbar.offsetWidth - 6)) + 'px';
   tbar.style.top = Math.max(6, top) + 'px';
@@ -410,14 +446,22 @@ function ungroupSel() {
   for (const it of its) it.group = null;
   commit(); render();
 }
-function connect() {
-  const ids = sel.filter(item); if (ids.length < 2) return toast('Chọn ít nhất 2 ảnh để nối mũi tên');
-  for (let i = 0; i < ids.length - 1; i++) {
-    const from = ids[i], to = ids[i + 1];
-    if (!doc.arrows.some((a) => a.from === from && a.to === to)) doc.arrows.push({ id: uid(), from, to });
-  }
-  commit(); render();
+function startLink(both) {
+  const it = selItems()[0]; if (!it) return toast('Chọn 1 ảnh trước rồi mới tạo mũi tên');
+  link = { from: it.id, both }; stage.classList.add('link');
+  toast('Bấm vào ảnh thứ 2 để nối (Esc để huỷ)'); renderArrows();
 }
+function endLink(toId) {
+  if (!link) return;
+  const { from, both } = link; link = null; stage.classList.remove('link');
+  if (toId && toId !== from) {
+    doc.arrows = doc.arrows.filter((a) => !((a.from === from && a.to === toId) || (a.from === toId && a.to === from)));
+    doc.arrows.push({ id: uid(), from, to: toId, both });
+    commit();
+  }
+  render();
+}
+function toggleArrowBoth() { const a = doc.arrows.find((x) => x.id === selArrow); if (!a) return; a.both = !a.both; commit(); render(); }
 function cloneItems(src, dx, dy) {
   const idMap = new Map(), gMap = new Map(), out = [];
   for (const o of src.items) {
@@ -428,7 +472,7 @@ function cloneItems(src, dx, dy) {
     }
     idMap.set(o.id, it.id); out.push(it); doc.items.push(it);
   }
-  for (const a of src.arrows) doc.arrows.push({ id: uid(), from: idMap.get(a.from), to: idMap.get(a.to) });
+  for (const a of src.arrows) doc.arrows.push({ id: uid(), from: idMap.get(a.from), to: idMap.get(a.to), both: !!a.both });
   sel = out.map((i) => i.id); selArrow = null;
   commit(); render();
 }
@@ -447,10 +491,10 @@ function pasteClip() {
   const b = aabb(clip.items), p = s2w(lastMouse.x, lastMouse.y);
   cloneItems(clip, p.x - b.cx, p.y - b.cy);
 }
-function fitView(its, maxZ) {
+function fitView(its, maxZ, pad = 80) {
   if (!its.length) { view = { x: innerWidth / 2, y: innerHeight / 2, z: 1 }; return applyView(); }
   const b = aabb(its);
-  const z = clamp(Math.min(maxZ, (innerWidth - 80) / Math.max(b.w, 1), (innerHeight - 80) / Math.max(b.h, 1)), 0.02, 40);
+  const z = clamp(Math.min(maxZ, (innerWidth - pad) / Math.max(b.w, 1), (innerHeight - pad) / Math.max(b.h, 1)), 0.02, 40);
   view = { z, x: innerWidth / 2 - b.cx * z, y: innerHeight / 2 - b.cy * z };
   applyView();
 }
@@ -498,7 +542,7 @@ function parseFile(u8) {
     doc: {
       items,
       groups: (d.groups || []).map((g) => ({ id: String(g.id) })),
-      arrows: (d.arrows || []).map((a) => ({ id: String(a.id), from: String(a.from), to: String(a.to) })),
+      arrows: (d.arrows || []).map((a) => ({ id: String(a.id), from: String(a.from), to: String(a.to), both: !!a.both })),
     },
     view: data.view && num(data.view.z, 0) > 0 ? { x: num(data.view.x, 0), y: num(data.view.y, 0), z: clamp(num(data.view.z, 1), 0.02, 40) } : null,
   };
@@ -554,6 +598,7 @@ stage.addEventListener('pointerdown', (e) => {
   if (editEl && editEl.contains(t) && e.button === 0) return;        // đang gõ chữ
   if (document.activeElement && document.activeElement.isContentEditable) document.activeElement.blur();
   endEdit();
+  if (link) { const le = e.button === 0 && t.closest('.item'); endLink(le ? le.dataset.id : null); if (e.button === 0) return; }
 
   if (e.button === 2) { drag = { type: 'right', sx: e.screenX, sy: e.screenY, moved: false, target: t }; }
   else if (e.button === 1 || (e.button === 0 && spaceDown)) { e.preventDefault(); drag = { type: 'pan', x: e.clientX, y: e.clientY, vx: view.x, vy: view.y }; stage.classList.add('panning'); }
@@ -571,7 +616,7 @@ stage.addEventListener('pointerdown', (e) => {
         drag = { type: mod, x: e.clientX, y: e.clientY, cx: b.cx, cy: b.cy, ax: b.cx, ay: b.cy, a0: Math.atan2(w.y - b.cy, w.x - b.cx), start: start() };
       }
     } else if (t.classList.contains('h') && frameInfo) {
-      const k = +t.dataset.h, sg = [[-1, -1], [1, -1], [1, 1], [-1, 1]][(k + 2) % 4];
+      const sg = [[1, 1], [-1, 1], [-1, -1], [1, -1], [0, 1], [-1, 0], [0, -1], [1, 0]][+t.dataset.h];   // điểm neo đối diện
       const a = rotv(sg[0] * frameInfo.w / 2, sg[1] * frameInfo.h / 2, frameInfo.rot);
       const ax = frameInfo.cx + a.x, ay = frameInfo.cy + a.y;
       drag = { type: 'scale', ax, ay, d0: Math.max(1e-6, Math.hypot(w.x - ax, w.y - ay)), start: start() };
@@ -597,6 +642,7 @@ stage.addEventListener('pointerdown', (e) => {
 
 stage.addEventListener('pointermove', (e) => {
   lastMouse = { x: e.clientX, y: e.clientY };
+  if (link) renderArrows();
   if (!drag) return;
   const d = drag, w = s2w(e.clientX, e.clientY);
   if (d.type === 'right') {
@@ -668,10 +714,16 @@ stage.addEventListener('wheel', (e) => {
   applyView();
 }, { passive: false });
 
+let zoomBack = null;
 stage.addEventListener('dblclick', (e) => {
-  const el = e.target.closest('.item'); if (!el || editingId) return;
-  const it = item(el.dataset.id); if (!it) return;
-  if (it.type === 'text') startEdit(it, false); else fitView([it], 8);
+  if (editingId) return;
+  const el = document.elementsFromPoint(e.clientX, e.clientY).find((x) => x.classList && x.classList.contains('item'));
+  const it = el && item(el.dataset.id); if (!it) return;
+  if (it.type === 'text') return startEdit(it, false);
+  if (zoomBack && zoomBack.id === it.id && zoomBack.to.z === view.z && zoomBack.to.x === view.x && zoomBack.to.y === view.y) { view = zoomBack.from; zoomBack = null; return applyView(); }
+  const from = { ...view };
+  fitView([it], 40, 24);
+  zoomBack = { id: it.id, from, to: { ...view } };
 });
 
 /* ================= kéo thả, dán ================= */
@@ -719,7 +771,7 @@ document.addEventListener('paste', (e) => {
 const CMD = {
   open: openFile, save: () => save(false), saveAs: () => save(true), newBoard,
   addImages: async () => addImages(await api.pickImages(), viewCenter()),
-  addText: () => addText(s2w(lastMouse.x, lastMouse.y)), arrow: connect,
+  addText: () => addText(s2w(lastMouse.x, lastMouse.y)), arrow: () => startLink(false), arrow2: () => startLink(true), arrowBoth: toggleArrowBoth,
   alL: () => alignCmd('l'), alCH: () => alignCmd('ch'), alR: () => alignCmd('r'), alT: () => alignCmd('t'), alCV: () => alignCmd('cv'), alB: () => alignCmd('b'),
   dH: () => alignCmd('dh'), dV: () => alignCmd('dv'), pack,
   flipH: () => flip('h'), flipV: () => flip('v'), rotL: () => rotateBy(-90), rotR: () => rotateBy(90), reset: resetXf,
@@ -747,7 +799,9 @@ function menuSpec() {
     { label: 'Bảng mới', cmd: 'newBoard', key: 'Ctrl+N' },
     { label: 'Thêm ảnh…', cmd: 'addImages', key: 'Ctrl+V để dán' }, S,
     { label: 'Thêm chữ', cmd: 'addText', key: 'T' },
-    { label: 'Nối mũi tên các ảnh đang chọn', cmd: 'arrow', key: 'A', off: !multi }, S,
+    { label: 'Tạo mũi tên nối', cmd: 'arrow', key: 'A', off: n !== 1 },
+    { label: 'Tạo mũi tên 2 chiều', cmd: 'arrow2', key: 'Shift+A', off: n !== 1 },
+    ...(selArrow ? [{ label: 'Mũi tên này 2 chiều', cmd: 'arrowBoth', chk: !!(doc.arrows.find((a) => a.id === selArrow) || {}).both }] : []), S,
     { label: 'Căn chỉnh', off: !multi, sub: [
       { label: 'Căn trái', cmd: 'alL' }, { label: 'Căn giữa ngang', cmd: 'alCH' }, { label: 'Căn phải', cmd: 'alR' }, S,
       { label: 'Căn trên', cmd: 'alT' }, { label: 'Căn giữa dọc', cmd: 'alCV' }, { label: 'Căn dưới', cmd: 'alB' }, S,
@@ -854,7 +908,8 @@ function openSettings() {
     <div class="keys">
       <kbd>Chuột phải</kbd><span>Mở menu</span><kbd>Giữ chuột phải + kéo</kbd><span>Di chuyển cửa sổ</span>
       <kbd>Lăn chuột</kbd><span>Phóng to / thu nhỏ</span><kbd>Chuột giữa / Space + kéo</kbd><span>Di chuyển khung nhìn</span>
-      <kbd>Bấm đúp vào ảnh</kbd><span>Phóng ảnh đó ra giữa</span><kbd>Shift + bấm</kbd><span>Chọn thêm / bỏ chọn</span>
+      <kbd>Bấm đúp vào ảnh</kbd><span>Phóng ảnh vừa màn hình (bấm đúp lần nữa để quay lại)</span>
+      <kbd>Ctrl + phím mũi tên</kbd><span>Căn mép trái / phải / trên / dưới</span><kbd>Shift + bấm</kbd><span>Chọn thêm / bỏ chọn</span>
       <kbd>Bấm vào nền group</kbd><span>Chọn cả group</span><kbd>Shift khi xoay</kbd><span>Xoay theo nấc 15°</span>
       <kbd>Ctrl + kéo</kbd><span>Xoay ảnh đang chọn</span><kbd>Ctrl+Shift + kéo ngang</kbd><span>Scale ảnh đang chọn</span>
       <kbd>Alt+Shift + kéo ngang / dọc</kbd><span>Lật trái phải / lật trên dưới</span>
@@ -913,6 +968,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (!modal.hidden) return closeModal();
     if (!menu.hidden) return closeMenu();
+    if (link) return endLink(null);
     if (editingId) return endEdit();
     if (sel.length || selArrow) return setSel([]);
     if (innerWidth >= screen.width && innerHeight >= screen.height) api.toggleFullscreen();
@@ -939,12 +995,14 @@ window.addEventListener('keydown', (e) => {
     if (c === 'KeyC') { copySel(); return; }
     if (c === 'Digit0' || c === 'Numpad0') return go('fit');
     if (c === 'Digit1' || c === 'Numpad1') return go('z100');
+    const al = { ArrowLeft: 'alL', ArrowRight: 'alR', ArrowUp: 'alT', ArrowDown: 'alB' }[c];
+    if (al) return go(al);
     return;
   }
   if (e.altKey) return;
   if (c === 'Delete' || c === 'Backspace') return go('del');
   if (c === 'KeyT') return go('addText');
-  if (c === 'KeyA') return go('arrow');
+  if (c === 'KeyA') return go(e.shiftKey ? 'arrow2' : 'arrow');
   if (c === 'KeyH') return go('flipH');
   if (c === 'KeyV') return go('flipV');
   if (c === 'BracketLeft') return go('rotL');

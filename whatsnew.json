@@ -1,16 +1,17 @@
 {
-  "version": "1.0.2",
+  "version": "1.0.3",
   "date": "2026-11-20",
   "new": [
-    "Giữ Ctrl + kéo để xoay ảnh đang chọn",
-    "Giữ Ctrl+Shift + kéo ngang để scale",
-    "Giữ Alt+Shift + kéo ngang để lật trái phải, kéo dọc để lật trên dưới",
-    "Nút kiểm tra cập nhật nằm cạnh nút ghim ở góc phải trên"
+    "Tạo mũi tên nối kiểu mới: chọn 1 ảnh, chuột phải chọn Tạo mũi tên nối, rồi bấm vào ảnh thứ 2",
+    "Mũi tên 2 chiều",
+    "Ctrl + phím mũi tên để căn mép trái, phải, trên, dưới"
   ],
   "improved": [
-    "Mép nền của group dày hơn",
-    "Bỏ khung viền đỏ khi chọn ảnh",
-    "Khi cập nhật, app tự cài và tự mở lại, không cần bấm thêm"
+    "Mũi tên đi theo đường gấp khúc bo góc, nối từ mép ảnh này sang mép ảnh kia",
+    "Khung chọn ảnh là 1 khung mảnh có chấm tròn ở góc và cạnh, bỏ móc tròn trên đầu",
+    "Bấm đúp vào ảnh phóng ảnh vừa khít màn hình, bấm đúp lần nữa để quay lại"
   ],
-  "fixed": []
+  "fixed": [
+    "Bấm đúp vào ảnh hoặc chữ không có tác dụng"
+  ]
 }
