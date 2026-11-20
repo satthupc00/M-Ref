@@ -3,7 +3,7 @@
 const $ = (s) => document.querySelector(s);
 const api = window.api || browserStub();
 
-const stage = $('#stage'), world = $('#world'), itemsEl = $('#items'), arrowsEl = $('#arrows'), groupsEl = $('#groups');
+const stage = $('#stage'), world = $('#world'), itemsEl = $('#items'), arrowsEl = $('#arrows'), gbgEl = $('#gbg');
 const frame = $('#frame'), marquee = $('#marquee'), tbar = $('#tbar'), menu = $('#menu'), modal = $('#modal');
 const toastEl = $('#toast'), updnote = $('#updnote'), dropEl = $('#drop'), pinBtn = $('#pin');
 
@@ -107,25 +107,26 @@ function render() {
 function renderOverlays() { renderGroups(); renderArrows(); renderSel(); updateInfo(); }
 function applyView() {
   world.style.transform = `translate(${view.x}px,${view.y}px) scale(${view.z})`;
+  world.style.setProperty('--iz', 1 / view.z);
   stage.style.backgroundPosition = `${view.x}px ${view.y}px`;
   renderOverlays();
 }
 
+const GPAD = 14;
 function renderGroups() {
-  const editing = groupsEl.querySelector('.gname[contenteditable=true]');
-  if (editing) return positionGroups();
-  groupsEl.innerHTML = doc.groups.map((g) => `<div class="gframe" data-g="${g.id}"><span class="gname" data-g="${g.id}" title="Bấm đúp để đổi tên (F2)">${esc(g.name)}</span></div>`).join('');
-  positionGroups();
-}
-function positionGroups() {
-  for (const fr of groupsEl.children) {
-    const mem = doc.items.filter((i) => i.group === fr.dataset.g);
-    if (!mem.length) { fr.hidden = true; continue; }
-    const b = aabb(mem), p = w2s(b.x, b.y), pad = 10;
-    fr.style.left = p.x - pad + 'px'; fr.style.top = p.y - pad + 'px';
-    fr.style.width = b.w * view.z + pad * 2 + 'px'; fr.style.height = b.h * view.z + pad * 2 + 'px';
-    fr.classList.toggle('sel', mem.every((i) => sel.includes(i.id)));
+  const have = new Map([...gbgEl.children].map((el) => [el.dataset.g, el]));
+  for (const g of doc.groups) {
+    const mem = doc.items.filter((i) => i.group === g.id);
+    if (!mem.length) continue;
+    let el = have.get(g.id);
+    if (!el) { el = document.createElement('div'); el.className = 'gpanel'; el.dataset.g = g.id; gbgEl.appendChild(el); }
+    have.delete(g.id);
+    const b = aabb(mem);
+    el.style.left = b.x - GPAD + 'px'; el.style.top = b.y - GPAD + 'px';
+    el.style.width = b.w + GPAD * 2 + 'px'; el.style.height = b.h + GPAD * 2 + 'px';
+    el.classList.toggle('sel', mem.every((i) => sel.includes(i.id)));
   }
+  for (const el of have.values()) el.remove();
 }
 
 function edgePoint(it, target, gap) {
@@ -192,7 +193,6 @@ function toast(msg) {
 
 /* ================= chọn ================= */
 function setSel(ids) { sel = [...new Set(ids)]; selArrow = null; renderOverlays(); }
-const withGroup = (it) => (it.group ? doc.items.filter((i) => i.group === it.group).map((i) => i.id) : [it.id]);
 function selectedGroup() {
   const its = selItems(); if (!its.length) return null;
   const g = its[0].group; if (!g || !its.every((i) => i.group === g)) return null;
@@ -401,31 +401,14 @@ function reorder(front) {
 }
 function groupSel() {
   const its = selItems(); if (!its.length) return;
-  let n = 1; while (doc.groups.some((g) => g.name === 'Group ' + n)) n++;
-  const g = { id: uid(), name: 'Group ' + n };
+  const g = { id: uid() };
   doc.groups.push(g); for (const it of its) it.group = g.id;
-  commit(); render(); renameGroup(g.id);
+  commit(); render();
 }
 function ungroupSel() {
   const its = selItems().filter((i) => i.group); if (!its.length) return;
   for (const it of its) it.group = null;
   commit(); render();
-}
-function renameGroup(gid) {
-  const g = gid ? doc.groups.find((x) => x.id === gid) : selectedGroup(); if (!g) return;
-  const lab = groupsEl.querySelector(`.gname[data-g="${g.id}"]`); if (!lab) return;
-  lab.contentEditable = 'true'; lab.focus();
-  const r = document.createRange(); r.selectNodeContents(lab); const s = getSelection(); s.removeAllRanges(); s.addRange(r);
-  const done = (ok) => {
-    lab.removeEventListener('blur', onBlur); lab.removeEventListener('keydown', onKey);
-    const name = lab.textContent.trim().slice(0, 80);
-    lab.contentEditable = 'false';
-    if (ok && name) g.name = name;
-    commit(); renderOverlays();
-  };
-  const onBlur = () => done(true);
-  const onKey = (e) => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); lab.blur(); } if (e.key === 'Escape') { e.preventDefault(); done(false); } };
-  lab.addEventListener('blur', onBlur); lab.addEventListener('keydown', onKey);
 }
 function connect() {
   const ids = sel.filter(item); if (ids.length < 2) return toast('Chọn ít nhất 2 ảnh để nối mũi tên');
@@ -440,7 +423,7 @@ function cloneItems(src, dx, dy) {
   for (const o of src.items) {
     const it = { ...o, id: uid(), cx: o.cx + dx, cy: o.cy + dy };
     if (it.group) {
-      if (!gMap.has(it.group)) { const g = src.groups.find((x) => x.id === it.group); const ng = g ? { id: uid(), name: g.name } : null; gMap.set(it.group, ng); if (ng) doc.groups.push(ng); }
+      if (!gMap.has(it.group)) { const g = src.groups.find((x) => x.id === it.group); const ng = g ? { id: uid() } : null; gMap.set(it.group, ng); if (ng) doc.groups.push(ng); }
       it.group = gMap.get(it.group) ? gMap.get(it.group).id : null;
     }
     idMap.set(o.id, it.id); out.push(it); doc.items.push(it);
@@ -514,7 +497,7 @@ function parseFile(u8) {
     assets: newAssets,
     doc: {
       items,
-      groups: (d.groups || []).map((g) => ({ id: String(g.id), name: String(g.name || 'Group').slice(0, 80) })),
+      groups: (d.groups || []).map((g) => ({ id: String(g.id) })),
       arrows: (d.arrows || []).map((a) => ({ id: String(a.id), from: String(a.from), to: String(a.to) })),
     },
     view: data.view && num(data.view.z, 0) > 0 ? { x: num(data.view.x, 0), y: num(data.view.y, 0), z: clamp(num(data.view.z, 1), 0.02, 40) } : null,
@@ -569,7 +552,6 @@ stage.addEventListener('pointerdown', (e) => {
   const t = e.target;
   const editEl = editingId && els.get(editingId);
   if (editEl && editEl.contains(t) && e.button === 0) return;        // đang gõ chữ
-  if (t.closest('.gname[contenteditable=true]')) return;
   if (document.activeElement && document.activeElement.isContentEditable) document.activeElement.blur();
   endEdit();
 
@@ -586,10 +568,10 @@ stage.addEventListener('pointerdown', (e) => {
     } else if (t.classList.contains('rot') && frameInfo) {
       drag = { type: 'rotate', cx: frameInfo.cx, cy: frameInfo.cy, a0: Math.atan2(w.y - frameInfo.cy, w.x - frameInfo.cx), start: start() };
     } else {
-      const el = t.closest('.item'), lab = t.closest('.gname'), ar = t.closest('g[data-a]');
+      const el = t.closest('.item'), lab = t.closest('.gpanel'), ar = t.closest('g[data-a]');
       if (ar) { sel = []; selArrow = ar.dataset.a; renderOverlays(); }
       else if (el || lab) {
-        const ids = lab ? doc.items.filter((i) => i.group === lab.dataset.g).map((i) => i.id) : (e.ctrlKey ? [el.dataset.id] : withGroup(item(el.dataset.id)));
+        const ids = lab ? doc.items.filter((i) => i.group === lab.dataset.g).map((i) => i.id) : [el.dataset.id];
         if (e.shiftKey) setSel(ids.every((id) => sel.includes(id)) ? sel.filter((id) => !ids.includes(id)) : [...sel, ...ids]);
         else if (!ids.every((id) => sel.includes(id))) setSel(ids);
         else { selArrow = null; renderOverlays(); }
@@ -640,7 +622,7 @@ stage.addEventListener('pointermove', (e) => {
     marquee.hidden = false;
     Object.assign(marquee.style, { left: x + 'px', top: y + 'px', width: mw + 'px', height: mh + 'px' });
     const a = s2w(x, y), b = s2w(x + mw, y + mh), hit = [];
-    for (const it of doc.items) { const r = aabb([it]); if (r.x < b.x && r.x + r.w > a.x && r.y < b.y && r.y + r.h > a.y) hit.push(...withGroup(it)); }
+    for (const it of doc.items) { const r = aabb([it]); if (r.x < b.x && r.x + r.w > a.x && r.y < b.y && r.y + r.h > a.y) hit.push(it.id); }
     sel = [...new Set([...d.base, ...hit])]; renderOverlays();
   }
 });
@@ -654,7 +636,8 @@ function endDrag(e) {
     else if (e.type === 'pointerup') {
       const el = d.target.closest && d.target.closest('.item'), ar = d.target.closest && d.target.closest('g[data-a]');
       if (ar) { sel = []; selArrow = ar.dataset.a; renderOverlays(); }
-      else if (el && !sel.includes(el.dataset.id)) setSel(withGroup(item(el.dataset.id)));
+      else if (el && !sel.includes(el.dataset.id)) setSel([el.dataset.id]);
+      else if (!el && d.target.closest && d.target.closest('.gpanel')) setSel(doc.items.filter((i) => i.group === d.target.closest('.gpanel').dataset.g).map((i) => i.id));
       openMenu(e.clientX, e.clientY);
     }
   } else if (d.moved && d.type !== 'marquee') { commit(); render(); }
@@ -673,7 +656,6 @@ stage.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 stage.addEventListener('dblclick', (e) => {
-  const lab = e.target.closest('.gname'); if (lab) return renameGroup(lab.dataset.g);
   const el = e.target.closest('.item'); if (!el || editingId) return;
   const it = item(el.dataset.id); if (!it) return;
   if (it.type === 'text') startEdit(it, false); else fitView([it], 8);
@@ -729,7 +711,7 @@ const CMD = {
   dH: () => alignCmd('dh'), dV: () => alignCmd('dv'), pack,
   flipH: () => flip('h'), flipV: () => flip('v'), rotL: () => rotateBy(-90), rotR: () => rotateBy(90), reset: resetXf,
   front: () => reorder(true), back: () => reorder(false),
-  group: groupSel, rename: () => renameGroup(), ungroup: ungroupSel, del, dup: duplicate,
+  group: groupSel, ungroup: ungroupSel, del, dup: duplicate,
   undo, redo, selectAll: () => setSel(doc.items.map((i) => i.id)),
   fit: () => fitView(sel.length ? selItems() : doc.items, 1), z100: () => { const c = viewCenter(); view.z = 1; view.x = innerWidth / 2 - c.x; view.y = innerHeight / 2 - c.y; applyView(); },
   full: () => api.toggleFullscreen(), min: () => api.minimize(), pin: () => setPin(!settings.alwaysOnTop),
@@ -743,7 +725,7 @@ function updateLabel() {
   return 'Kiểm tra bản cập nhật';
 }
 function menuSpec() {
-  const n = sel.length, any = n > 0 || !!selArrow, multi = n > 1, g = !!selectedGroup(), inGroup = selItems().some((i) => i.group);
+  const n = sel.length, any = n > 0 || !!selArrow, multi = n > 1, inGroup = selItems().some((i) => i.group);
   const S = { sep: true };
   return [
     { label: 'Mở file…', cmd: 'open', key: 'Ctrl+O' },
@@ -763,7 +745,7 @@ function menuSpec() {
       { label: 'Đặt lại xoay / tỉ lệ', cmd: 'reset' }, { label: 'Đưa lên trên cùng', cmd: 'front' }, { label: 'Đưa xuống dưới cùng', cmd: 'back' }, S,
       { label: 'Nhân đôi', cmd: 'dup', key: 'Ctrl+D' }] },
     { label: 'Group', off: !n, sub: [
-      { label: 'Tạo group', cmd: 'group', key: 'Ctrl+G' }, { label: 'Đặt tên group', cmd: 'rename', key: 'F2', off: !g }, { label: 'Rã group', cmd: 'ungroup', key: 'Ctrl+Shift+G', off: !inGroup }] },
+      { label: 'Tạo group', cmd: 'group', key: 'Ctrl+G' }, { label: 'Rã group', cmd: 'ungroup', key: 'Ctrl+Shift+G', off: !inGroup }] },
     { label: 'Xoá', cmd: 'del', key: 'Del', off: !any, cls: 'danger' }, S,
     { label: 'Khung nhìn', sub: [
       { label: 'Xem vừa tất cả', cmd: 'fit', key: 'Ctrl+0' }, { label: 'Về 100%', cmd: 'z100', key: 'Ctrl+1' }, S,
@@ -861,7 +843,7 @@ function openSettings() {
       <kbd>Chuột phải</kbd><span>Mở menu</span><kbd>Giữ chuột phải + kéo</kbd><span>Di chuyển cửa sổ</span>
       <kbd>Lăn chuột</kbd><span>Phóng to / thu nhỏ</span><kbd>Chuột giữa / Space + kéo</kbd><span>Di chuyển khung nhìn</span>
       <kbd>Bấm đúp vào ảnh</kbd><span>Phóng ảnh đó ra giữa</span><kbd>Shift + bấm</kbd><span>Chọn thêm / bỏ chọn</span>
-      <kbd>Ctrl + bấm</kbd><span>Chọn 1 ảnh bên trong group</span><kbd>Shift khi xoay</kbd><span>Xoay theo nấc 15°</span>
+      <kbd>Bấm vào nền group</kbd><span>Chọn cả group</span><kbd>Shift khi xoay</kbd><span>Xoay theo nấc 15°</span>
       <kbd>Ctrl+F</kbd><span>Toàn màn hình</span><kbd>Ctrl+T</kbd><span>Luôn nằm trên</span>
       <kbd>Ctrl+Z / Ctrl+Y</kbd><span>Hoàn tác / làm lại</span><kbd>Ctrl+D</kbd><span>Nhân đôi</span>
     </div></div>`);
@@ -931,7 +913,6 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.altKey) return;
   if (c === 'Delete' || c === 'Backspace') return go('del');
-  if (c === 'F2') return go('rename');
   if (c === 'KeyT') return go('addText');
   if (c === 'KeyA') return go('arrow');
   if (c === 'KeyH') return go('flipH');

@@ -32,17 +32,13 @@ button:not(:disabled):active{transform:scale(.95);transition-duration:.06s}
 .item.text[contenteditable=true]{cursor:text;user-select:text}
 .item.text ::selection{background:rgba(229,56,59,.45)}
 
-#groups{position:absolute;inset:0;pointer-events:none}
-.gframe{position:absolute;border:1.5px dashed #6b717c;border-radius:8px}
-.gframe.sel{border-color:var(--red)}
-.gname{position:absolute;left:8px;top:-12px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:1px 9px 1px 22px;font-size:12px;font-weight:600;
-  pointer-events:auto;cursor:default;outline:none}
-.gname::before{content:'';position:absolute;left:9px;top:50%;width:7px;height:7px;margin-top:-3.5px;border-radius:50%;background:var(--red)}
-.gname:hover{border-color:var(--red)}
-.gname[contenteditable=true]{cursor:text;user-select:text;border-color:var(--red);box-shadow:0 0 0 3px rgba(229,56,59,.18);text-overflow:clip}
+#gbg{position:absolute;left:0;top:0}
+.gpanel{position:absolute;background:#000;border-radius:10px;cursor:default;
+  transition:box-shadow var(--t-med) var(--ease-out)}
+.gpanel:hover{box-shadow:0 0 0 calc(1.5px*var(--iz,1)) #5A5F69}
+.gpanel.sel{box-shadow:0 0 0 calc(1.5px*var(--iz,1)) var(--red)}
 
-#frame{position:absolute;left:0;top:0;border:1.5px solid var(--red);pointer-events:none}
+#frame{position:absolute;left:0;top:0;border:2px solid var(--red);pointer-events:none}
 .h{position:absolute;width:10px;height:10px;background:#fff;border:1.5px solid var(--red);border-radius:2px;pointer-events:auto;
   transition:transform var(--t-med) var(--ease-spring)}
 .h:hover{transform:scale(1.35)}

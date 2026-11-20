@@ -1,16 +1,10 @@
 {
-  "version": "1.0.0",
-  "date": "2026-11-18",
-  "new": [
-    "Bản đầu tiên của M Ref: canvas không viền để thả ảnh PNG, JPG, GIF động làm tham khảo",
-    "Di chuyển, scale, xoay, lật, căn chỉnh, dàn đều và xếp lưới ảnh",
-    "Group ảnh, đặt tên group, rã group",
-    "Gõ chữ với màu, đậm, nghiêng, gạch dưới",
-    "Nối mũi tên giữa các ảnh đang chọn",
-    "Lưu thành 1 file .mref chứa luôn toàn bộ ảnh",
-    "Nút ghim luôn nằm trên, Ctrl+F toàn màn hình, giữ chuột phải kéo để di chuyển cửa sổ",
-    "Tự kiểm tra và cài bản cập nhật mới"
+  "version": "1.0.1",
+  "date": "2026-11-20",
+  "new": [],
+  "improved": [
+    "Group hiển thị bằng tấm nền đen bao quanh các ảnh, không còn nhãn tên",
+    "Bấm vào ảnh trong group để thao tác riêng ảnh đó; bấm vào nền group để thao tác cả group"
   ],
-  "improved": [],
   "fixed": []
 }
