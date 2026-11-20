@@ -1,10 +1,10 @@
 {
-  "version": "1.0.5",
+  "version": "1.0.6",
   "date": "2026-11-20",
   "new": [
-    "Ảnh GIF: chuột phải chọn Dừng GIF / Chạy GIF (hoặc phím P)",
-    "Ảnh GIF đang chọn: phím mũi tên trái / phải để lùi / tới từng frame",
-    "Đang xoay ảnh, đè thêm Shift để xoay theo nấc 15°"
+    "Hỗ trợ video MP4, WebM, MOV: kéo từ ổ cứng hoặc kéo pin video từ Pinterest; dừng / chạy bằng phím P, mũi tên trái / phải để tua từng khung hình",
+    "Chỉnh độ rõ (trong / đục): giữ Ctrl+Shift+Alt rồi kéo ngang trên ảnh, trên nền group, hoặc trên nền trống để chỉnh cả cửa sổ",
+    "Đổi màu nền group: chuột phải vào nền group, chọn Thay màu nền…"
   ],
   "improved": [],
   "fixed": []

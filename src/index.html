@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'">
 <title>M Ref</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -20,7 +20,7 @@
 
   <div id="empty">
     <h1>Thả ảnh vào đây</h1>
-    <p>PNG, JPG, GIF động — hoặc dán bằng Ctrl+V</p>
+    <p>PNG, JPG, GIF động, video MP4 / WebM / MOV — hoặc dán bằng Ctrl+V</p>
     <ul>
       <li><kbd>Chuột phải</kbd> mở menu</li>
       <li><kbd>Giữ chuột phải + kéo</kbd> di chuyển cửa sổ</li>
@@ -63,7 +63,7 @@
 <div id="updnote" hidden></div>
 <div id="toast" hidden></div>
 <div id="menu" hidden></div>
-<div id="drop" hidden><span>Thả để thêm ảnh</span></div>
+<div id="drop" hidden><span>Thả để thêm ảnh / video</span></div>
 <div id="modal" hidden></div>
 
 <script src="app.js"></script>

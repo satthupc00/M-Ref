@@ -25,6 +25,10 @@ let upd = { state: 'idle' }, manualCheck = false;
 let link = null;                   // {from, both} khi đang tạo mũi tên nối
 let drag = null, spaceDown = false, lastMouse = { x: innerWidth / 2, y: innerHeight / 2 };
 
+const MEDIA_RE = /^(image\/(png|jpeg|gif|webp|bmp)|video\/(mp4|webm|quicktime|x-m4v))$/;
+const isVideoMime = (m) => /^video\//.test(m || '');
+const EXT_MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime' };
+const mimeOf = (name, type) => (MEDIA_RE.test(type || '') ? type : EXT_MIME[String(name || '').split('.').pop().toLowerCase()] || type || 'image/png');
 const CLIP_MARK = '​M Ref';
 const uid = () => Math.random().toString(36).slice(2, 10);
 const item = (id) => doc.items.find((i) => i.id === id);
@@ -73,10 +77,16 @@ function makeEl(it) {
   const el = document.createElement('div');
   el.className = 'item ' + it.type; el.dataset.id = it.id;
   if (it.type === 'image') {
-    const img = document.createElement('img'); img.draggable = false;
-    img.addEventListener('load', () => { el._t0 = performance.now(); });
-    const a = assets.get(it.asset); if (a) img.src = a.url;
-    el.appendChild(img);
+    const a = assets.get(it.asset);
+    if (a && isVideoMime(a.mime)) {
+      const v = document.createElement('video'); v.muted = true; v.loop = true; v.autoplay = true; v.playsInline = true; v.src = a.url;
+      el.appendChild(v);
+    } else {
+      const img = document.createElement('img'); img.draggable = false;
+      img.addEventListener('load', () => { el._t0 = performance.now(); });
+      if (a) img.src = a.url;
+      el.appendChild(img);
+    }
   } else {
     el.spellcheck = false;
     el.addEventListener('input', () => onTextInput(it.id));
@@ -85,9 +95,9 @@ function makeEl(it) {
   return el;
 }
 function place(it, el) {
-  el.style.left = it.cx + 'px'; el.style.top = it.cy + 'px';
+  el.style.left = it.cx + 'px'; el.style.top = it.cy + 'px'; el.style.opacity = it.opacity == null ? '' : it.opacity;
   el.style.transform = `translate(-50%,-50%) rotate(${it.rot}deg) scale(${it.fx ? -1 : 1},${it.fy ? -1 : 1})`;
-  if (it.type === 'image') { el.style.width = it.w + 'px'; el.style.height = it.h + 'px'; gifSync(it, el); }
+  if (it.type === 'image') { el.style.width = it.w + 'px'; el.style.height = it.h + 'px'; gifSync(it, el); vidSync(it, el); }
   else {
     el.style.fontSize = it.size + 'px'; el.style.color = it.color;
     if (editingId !== it.id && el._html !== it.html) { el.innerHTML = it.html; el._html = it.html; }
@@ -115,6 +125,14 @@ function applyView() {
 }
 
 const GPAD = 32;
+function groupBg(g) {
+  const c = /^#[0-9a-f]{6}$/i.test(g.color || '') ? g.color : '#000000', n = parseInt(c.slice(1), 16);
+  return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${g.opacity == null ? 1 : g.opacity})`;
+}
+function wholeGroup() {                       // group đang được chọn trọn vẹn (bấm vào nền group)
+  const g = selectedGroup();
+  return g && doc.items.filter((i) => i.group === g.id).length === sel.length ? g : null;
+}
 function renderGroups() {
   const have = new Map([...gbgEl.children].map((el) => [el.dataset.g, el]));
   for (const g of doc.groups) {
@@ -127,6 +145,7 @@ function renderGroups() {
     el.style.left = b.x - GPAD + 'px'; el.style.top = b.y - GPAD + 'px';
     el.style.width = b.w + GPAD * 2 + 'px'; el.style.height = b.h + GPAD * 2 + 'px';
     el.classList.toggle('sel', mem.every((i) => sel.includes(i.id)));
+    el.style.backgroundColor = groupBg(g);
   }
   for (const el of have.values()) el.remove();
 }
@@ -243,21 +262,37 @@ function unitsOf(its) {
 async function addImages(list, at) {
   const added = [];
   for (const f of list) {
-    const blob = f.blob || new Blob([f.data], { type: f.mime });
+    const mime = mimeOf(f.name, (f.blob && f.blob.type) || f.mime);
+    const blob = f.blob && f.blob.type === mime ? f.blob : new Blob([f.blob || f.data], { type: mime });
     const url = URL.createObjectURL(blob);
-    const img = new Image(); img.src = url;
-    try { await img.decode(); } catch { URL.revokeObjectURL(url); continue; }
+    let nw = 0, nh = 0;
+    try {
+      if (isVideoMime(mime)) {
+        const v = document.createElement('video'); v.muted = true; v.preload = 'metadata';
+        await new Promise((ok, no) => { v.onloadeddata = ok; v.onerror = no; setTimeout(no, 15000); v.src = url; });
+        nw = v.videoWidth; nh = v.videoHeight; v.removeAttribute('src'); v.load();
+      } else { const img = new Image(); img.src = url; await img.decode(); nw = img.naturalWidth; nh = img.naturalHeight; }
+      if (!nw || !nh) throw new Error('size');
+    } catch { URL.revokeObjectURL(url); continue; }
     const id = uid();
-    assets.set(id, { blob, url, mime: blob.type || f.mime || 'image/png', name: f.name || 'image', w: img.naturalWidth, h: img.naturalHeight });
-    const k = Math.min(1, (innerWidth * 0.6) / view.z / img.naturalWidth, (innerHeight * 0.6) / view.z / img.naturalHeight);
-    added.push({ id: uid(), type: 'image', asset: id, cx: 0, cy: 0, w: img.naturalWidth * k, h: img.naturalHeight * k, rot: 0, fx: false, fy: false, group: null });
+    assets.set(id, { blob, url, mime, name: f.name || 'image', w: nw, h: nh });
+    const k = Math.min(1, (innerWidth * 0.6) / view.z / nw, (innerHeight * 0.6) / view.z / nh);
+    added.push({ id: uid(), type: 'image', asset: id, cx: 0, cy: 0, w: nw * k, h: nh * k, rot: 0, fx: false, fy: false, group: null });
   }
-  if (!added.length) { if (list.length) toast('Không đọc được ảnh này'); return; }
+  if (!added.length) { if (list.length) toast('Không đọc được file này (định dạng chưa hỗ trợ)'); return; }
   const gap = 16 / view.z, total = added.reduce((s, i) => s + i.w, 0) + gap * (added.length - 1);
   let x = at.x - total / 2;
   for (const it of added) { it.cx = x + it.w / 2; it.cy = at.y; x += it.w + gap; doc.items.push(it); }
   sel = added.map((i) => i.id); selArrow = null;
   commit(); render();
+}
+/* ---------- video ---------- */
+const isVideo = (it) => it.type === 'image' && isVideoMime((assets.get(it.asset) || {}).mime);
+const isAnim = (it) => isGif(it) || isVideo(it);
+function vidSync(it, el) {
+  const v = el.querySelector('video'); if (!v) return;
+  if (it.paused) { if (!v.paused) v.pause(); if (Math.abs(v.currentTime - (it.time || 0)) > 0.005) v.currentTime = it.time || 0; }
+  else if (v.paused) v.play().catch(() => {});
 }
 /* ---------- GIF: dừng / chạy / xem từng frame ---------- */
 const isGif = (it) => it.type === 'image' && (assets.get(it.asset) || {}).mime === 'image/gif';
@@ -311,30 +346,40 @@ function gifNow(el, g) {                       // frame đang hiện (ước lư
   return f;
 }
 async function gifToggle() {
-  const gs = selItems().filter(isGif); if (!gs.length) return;
+  const gs = selItems().filter(isAnim); if (!gs.length) return;
   const pause = gs.some((i) => !i.paused);
   try {
     for (const it of gs) {
-      if (!pause) { it.paused = false; delete it.frame; continue; }
+      if (!pause) { it.paused = false; delete it.frame; delete it.time; continue; }
       if (it.paused) continue;
-      const el = els.get(it.id), g = await gifInit(it, el);
-      it.frame = gifNow(el, g); it.paused = true;
+      const el = els.get(it.id);
+      if (isVideo(it)) it.time = el.querySelector('video').currentTime;
+      else { const g = await gifInit(it, el); it.frame = gifNow(el, g); }
+      it.paused = true;
     }
   } catch { return toast('Không đọc được các frame của GIF này'); }
   commit(); render();
 }
 async function gifStep(dir) {
-  const gs = selItems().filter(isGif); if (!gs.length) return;
+  const gs = selItems().filter(isAnim); if (!gs.length) return;
+  let msg = '';
   try {
     for (const it of gs) {
-      const el = els.get(it.id), g = await gifInit(it, el);
-      it.frame = ((it.paused ? it.frame | 0 : gifNow(el, g)) + dir + g.n) % g.n; it.paused = true;
+      const el = els.get(it.id);
+      if (isVideo(it)) {
+        const v = el.querySelector('video'), dur = v.duration || 0;
+        it.time = clamp((it.paused ? it.time || 0 : v.currentTime) + dir / 30, 0, Math.max(0, dur - 0.01)); it.paused = true;
+        msg = msg || `${it.time.toFixed(2)}s / ${dur.toFixed(2)}s`;
+      } else {
+        const g = await gifInit(it, el);
+        it.frame = ((it.paused ? it.frame | 0 : gifNow(el, g)) + dir + g.n) % g.n; it.paused = true;
+        msg = msg || `Frame ${it.frame + 1} / ${g.n}`;
+      }
     }
   } catch { return toast('Không đọc được các frame của GIF này'); }
-  commit(); render();
-  const f = gs[0], g = els.get(f.id)._gif; if (g && g.n) toast(`Frame ${f.frame + 1} / ${g.n}`);
+  commit(); render(); toast(msg);
 }
-const isImageFile = (f) => /^image\/(png|jpeg|gif|webp|bmp)$/.test(f.type) || /\.(png|jpe?g|gif|webp|bmp)$/i.test(f.name);
+const isImageFile = (f) => MEDIA_RE.test(f.type) || /\.(png|jpe?g|gif|webp|bmp|mp4|webm|mov|m4v)$/i.test(f.name);
 const viewCenter = () => s2w(innerWidth / 2, innerHeight / 2);
 
 /* ================= chữ ================= */
@@ -546,7 +591,7 @@ function cloneItems(src, dx, dy) {
   for (const o of src.items) {
     const it = { ...o, id: uid(), cx: o.cx + dx, cy: o.cy + dy };
     if (it.group) {
-      if (!gMap.has(it.group)) { const g = src.groups.find((x) => x.id === it.group); const ng = g ? { id: uid() } : null; gMap.set(it.group, ng); if (ng) doc.groups.push(ng); }
+      if (!gMap.has(it.group)) { const g = src.groups.find((x) => x.id === it.group); const ng = g ? { ...g, id: uid() } : null; gMap.set(it.group, ng); if (ng) doc.groups.push(ng); }
       it.group = gMap.get(it.group) ? gMap.get(it.group).id : null;
     }
     idMap.set(o.id, it.id); out.push(it); doc.items.push(it);
@@ -605,14 +650,15 @@ function parseFile(u8) {
   const base = 12 + len, num = (v, d) => (Number.isFinite(+v) ? +v : d);
   const newAssets = new Map();
   for (const a of data.assets || []) {
-    if (!/^image\/(png|jpeg|gif|webp|bmp)$/.test(a.mime)) continue;
+    if (!MEDIA_RE.test(a.mime)) continue;
     const blob = new Blob([u8.slice(base + a.offset, base + a.offset + a.size)], { type: a.mime });
     newAssets.set(String(a.id), { blob, url: URL.createObjectURL(blob), mime: a.mime, name: String(a.name || 'image'), w: num(a.w, 100), h: num(a.h, 100) });
   }
   const d = data.doc || {};
   const items = (d.items || []).filter((i) => i && (i.type === 'text' || (i.type === 'image' && newAssets.has(String(i.asset))))).map((i) => {
     const o = { id: String(i.id), type: i.type, cx: num(i.cx, 0), cy: num(i.cy, 0), w: Math.max(1, num(i.w, 100)), h: Math.max(1, num(i.h, 100)), rot: num(i.rot, 0), fx: !!i.fx, fy: !!i.fy, group: i.group ? String(i.group) : null };
-    if (i.type === 'image') { o.asset = String(i.asset); if (i.paused) { o.paused = true; o.frame = Math.max(0, num(i.frame, 0) | 0); } }
+    if (i.type === 'image') { o.asset = String(i.asset); if (i.paused) { o.paused = true; o.frame = Math.max(0, num(i.frame, 0) | 0); o.time = Math.max(0, num(i.time, 0)); } }
+    if (i.opacity != null) o.opacity = clamp(num(i.opacity, 1), 0.05, 1);
     else { o.html = sanitize(String(i.html || '')); o.size = clamp(num(i.size, 22), 4, 4000); o.color = /^#[0-9a-f]{3,8}$/i.test(i.color) ? i.color : '#E8E9EC'; }
     return o;
   });
@@ -620,7 +666,12 @@ function parseFile(u8) {
     assets: newAssets,
     doc: {
       items,
-      groups: (d.groups || []).map((g) => ({ id: String(g.id) })),
+      groups: (d.groups || []).map((g) => {
+        const o = { id: String(g.id) };
+        if (/^#[0-9a-f]{6}$/i.test(g.color || '')) o.color = g.color;
+        if (g.opacity != null) o.opacity = clamp(num(g.opacity, 1), 0, 1);
+        return o;
+      }),
       arrows: (d.arrows || []).map((a) => ({ id: String(a.id), from: String(a.from), to: String(a.to), both: !!a.both })),
     },
     view: data.view && num(data.view.z, 0) > 0 ? { x: num(data.view.x, 0), y: num(data.view.y, 0), z: clamp(num(data.view.z, 1), 0.02, 40) } : null,
@@ -669,13 +720,12 @@ async function makeThumb() {
   if (!doc.items.length) return cv.toDataURL('image/jpeg', 0.7);
   const b = aabb(doc.items), k = Math.min((W - 16) / Math.max(b.w + GPAD * 2, 1), (H - 16) / Math.max(b.h + GPAD * 2, 1));
   x.translate(W / 2 - b.cx * k, H / 2 - b.cy * k); x.scale(k, k);
-  x.fillStyle = '#000';
-  for (const g of doc.groups) { const m = doc.items.filter((i) => i.group === g.id); if (m.length) { const r = aabb(m); x.fillRect(r.x - GPAD, r.y - GPAD, r.w + GPAD * 2, r.h + GPAD * 2); } }
+  for (const g of doc.groups) { const m = doc.items.filter((i) => i.group === g.id); if (m.length) { const r = aabb(m); x.fillStyle = groupBg(g); x.fillRect(r.x - GPAD, r.y - GPAD, r.w + GPAD * 2, r.h + GPAD * 2); } }
   for (const it of doc.items) {
     x.save(); x.translate(it.cx, it.cy); x.rotate(it.rot * Math.PI / 180); x.scale(it.fx ? -1 : 1, it.fy ? -1 : 1);
     if (it.type === 'image') {
-      const img = els.get(it.id) && els.get(it.id).querySelector('img');
-      try { await img.decode(); x.drawImage(img, -it.w / 2, -it.h / 2, it.w, it.h); } catch { /* ảnh lỗi: bỏ qua */ }
+      const img = els.get(it.id) && els.get(it.id).querySelector('img,video');
+      try { if (img.decode) await img.decode(); x.globalAlpha = it.opacity == null ? 1 : it.opacity; x.drawImage(img, -it.w / 2, -it.h / 2, it.w, it.h); } catch { /* ảnh lỗi: bỏ qua */ }
     } else { x.fillStyle = it.color; x.globalAlpha = 0.7; x.fillRect(-it.w / 2, -it.h * 0.2, it.w, it.h * 0.4); }
     x.restore();
   }
@@ -735,7 +785,17 @@ stage.addEventListener('pointerdown', (e) => {
     const w = s2w(e.clientX, e.clientY);
     const start = () => selItems().map((it) => ({ it, cx: it.cx, cy: it.cy, w: it.w, h: it.h, rot: it.rot, size: it.size }));
     const mod = e.ctrlKey && e.shiftKey ? 'mscale' : e.ctrlKey ? 'rotate' : e.altKey && e.shiftKey ? 'mflip' : null;
-    if (mod) {
+    if (e.ctrlKey && e.shiftKey && e.altKey) {     // chỉnh độ rõ: ảnh / nền group / cả cửa sổ
+      e.preventDefault();
+      const oel = t.closest('.item'), opn = t.closest('.gpanel');
+      if (oel) {
+        if (!sel.includes(oel.dataset.id)) setSel([oel.dataset.id]);
+        drag = { type: 'mopacity', x: e.clientX, items: selItems().map((it) => ({ it, o: it.opacity == null ? 1 : it.opacity })) };
+      } else if (opn) {
+        const g = doc.groups.find((x) => x.id === opn.dataset.g);
+        if (g) drag = { type: 'mopacity', x: e.clientX, group: g, o: g.opacity == null ? 1 : g.opacity };
+      } else drag = { type: 'mopacity', x: e.clientX, win: true, o: settings.opacity || 1 };
+    } else if (mod) {
       e.preventDefault();
       const mel = t.closest('.item'), mpn = t.closest('.gpanel');
       if (mel && !sel.includes(mel.dataset.id)) setSel([mel.dataset.id]);
@@ -784,6 +844,12 @@ stage.addEventListener('pointermove', (e) => {
     d.moved = true;
     for (const s of d.start) { s.it.cx = s.cx + dx / view.z; s.it.cy = s.cy + dy / view.z; place(s.it, els.get(s.it.id)); }
     renderOverlays();
+  } else if (d.type === 'mopacity') {
+    const k = (e.clientX - d.x) / 300; let v = 1;
+    if (d.win) { v = clamp(d.o + k, 0.2, 1); settings.opacity = v; api.setOpacity(v); }
+    else if (d.group) { v = clamp(d.o + k, 0, 1); d.group.opacity = v; renderGroups(); }
+    else for (const o of d.items) { v = clamp(o.o + k, 0.05, 1); o.it.opacity = v; els.get(o.it.id).style.opacity = v; }
+    d.moved = true; toast(`Độ rõ ${Math.round(v * 100)}%`);
   } else if (d.type === 'mflip') {
     const dx = e.clientX - d.x, dy = e.clientY - d.y;
     if (!d.done && Math.max(Math.abs(dx), Math.abs(dy)) > 24) { d.done = true; flip(Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v'); }
@@ -873,11 +939,14 @@ window.addEventListener('drop', async (e) => {
   }
   const imgs = files.filter(isImageFile);
   if (imgs.length) return addImages(imgs.map((f) => ({ blob: f, name: f.name })), at);
-  const html = e.dataTransfer.getData('text/html'), m = html && html.match(/<img[^>]+src="([^"]+)"/i);
+  const html = e.dataTransfer.getData('text/html'), m = html && (html.match(/<(?:video|source)[^>]+src="([^"]+)"/i) || html.match(/<img[^>]+src="([^"]+)"/i));
   const url = (m && m[1].replace(/&amp;/g, '&')) || e.dataTransfer.getData('text/uri-list').split('\n')[0];
   if (/^data:image\//.test(url)) { try { const b = await (await fetch(url)).blob(); return addImages([{ blob: b, name: 'image' }], at); } catch { /* bỏ qua */ } }
-  if (/^https?:/.test(url)) { const r = await api.fetchImage(url.trim()); if (r) return addImages([r], at); }
-  toast('Chỉ nhận ảnh PNG, JPG, GIF');
+  const page = e.dataTransfer.getData('text/uri-list').split('\n')[0].trim();
+  const tries = [...new Set([/pinterest\.|pin\.it/i.test(page) ? page : null, url.trim(), page].filter((u) => /^https?:/.test(u || '')))];
+  if (tries.length) toast('Đang tải về…');
+  for (const u of tries) { const r = await api.fetchImage(u); if (r) return addImages([r], at); }
+  toast('Chỉ nhận ảnh PNG, JPG, GIF và video MP4, WebM, MOV');
 });
 document.addEventListener('paste', (e) => {
   const ae = document.activeElement;
@@ -905,7 +974,7 @@ const CMD = {
   dH: () => alignCmd('dh'), dV: () => alignCmd('dv'), pack,
   flipH: () => flip('h'), flipV: () => flip('v'), rotL: () => rotateBy(-90), rotR: () => rotateBy(90), reset: resetXf,
   front: () => reorder(true), back: () => reorder(false),
-  group: groupSel, ungroup: ungroupSel, del, dup: duplicate,
+  group: groupSel, ungroup: ungroupSel, groupColor: openGroupColor, del, dup: duplicate,
   undo, redo, selectAll: () => setSel(doc.items.map((i) => i.id)),
   fit: () => fitView(sel.length ? selItems() : doc.items, 1), z100: () => { const c = viewCenter(); view.z = 1; view.x = innerWidth / 2 - c.x; view.y = innerHeight / 2 - c.y; applyView(); },
   full: () => api.toggleFullscreen(), min: () => api.minimize(), pin: () => setPin(!settings.alwaysOnTop),
@@ -931,7 +1000,8 @@ function menuSpec() {
     { label: 'Thêm chữ', cmd: 'addText', key: 'T' },
     { label: 'Tạo mũi tên nối', cmd: 'arrow', key: 'A', off: n !== 1 },
     { label: 'Tạo mũi tên 2 chiều', cmd: 'arrow2', key: 'Shift+A', off: n !== 1 },
-    ...(selItems().some(isGif) ? [{ label: selItems().filter(isGif).some((i) => !i.paused) ? 'Dừng GIF' : 'Chạy GIF', cmd: 'gifToggle', key: 'P' }] : []),
+    ...(selItems().some(isAnim) ? [{ label: selItems().filter(isAnim).some((i) => !i.paused) ? 'Dừng GIF / video' : 'Chạy GIF / video', cmd: 'gifToggle', key: 'P' }] : []),
+    ...(wholeGroup() ? [{ label: 'Thay màu nền…', cmd: 'groupColor' }] : []),
     ...(selArrow ? [{ label: 'Mũi tên này 2 chiều', cmd: 'arrowBoth', chk: !!(doc.arrows.find((a) => a.id === selArrow) || {}).both }] : []), S,
     { label: 'Căn chỉnh', off: !multi, sub: [
       { label: 'Căn trái', cmd: 'alL' }, { label: 'Căn giữa ngang', cmd: 'alCH' }, { label: 'Căn phải', cmd: 'alR' }, S,
@@ -1015,6 +1085,20 @@ function openWhatsNew(onClose) {
     `${sec('Mới', w.new)}${sec('Cải thiện', w.improved)}${sec('Sửa lỗi', w.fixed)}</div>`, typeof onClose === 'function' ? onClose : null);
   const b = d.querySelector('[data-upd]'); if (b) b.onclick = () => { closeModal(); updateCmd(); };
 }
+const GCOLS = ['#000000', '#1F2126', '#2B2D31', '#4A4D55', '#8D929C', '#E8E9EC', '#3A2426', '#1D2B3A', '#1F3327', '#3A3320'];
+function openGroupColor() {
+  const g = wholeGroup(); if (!g) return;
+  const cur = (g.color || '#000000').toLowerCase(), pct = Math.round((g.opacity == null ? 1 : g.opacity) * 100);
+  const d = showModal(`<header>Màu nền group<button class="x" title="Đóng (Esc)">✕</button></header><div class="body">
+    <div class="row"><span>Màu nền</span><div class="bgs">${GCOLS.map((c) => `<button class="sw ${c.toLowerCase() === cur ? 'on' : ''}" data-gc="${c}" style="background:${c}" title="${c}"></button>`).join('')}
+      <label class="sw pick" title="Chọn màu khác"><input type="color" id="gcpick" value="${esc(cur)}"></label></div></div>
+    <div class="row"><span>Độ rõ nền</span><input type="range" id="gop" min="0" max="100" value="${pct}" style="--fill:${pct}%"><span class="val" id="gopv">${pct}%</span></div>
+    </div>`, () => { commit(); render(); });
+  const setC = (c) => { g.color = c; renderGroups(); d.querySelectorAll('[data-gc]').forEach((b) => b.classList.toggle('on', b.dataset.gc.toLowerCase() === c.toLowerCase())); };
+  d.querySelector('.bgs').addEventListener('click', (e) => { const b = e.target.closest('[data-gc]'); if (b) setC(b.dataset.gc); });
+  d.querySelector('#gcpick').oninput = (e) => setC(e.target.value);
+  d.querySelector('#gop').oninput = (e) => { const v = +e.target.value; e.target.style.setProperty('--fill', v + '%'); d.querySelector('#gopv').textContent = v + '%'; g.opacity = v / 100; renderGroups(); };
+}
 const BGS = ['#2B2D31', '#1F2126', '#000000', '#4A4D55', '#8D929C', '#E8E9EC'];
 function applyLook() {
   const bg = /^#[0-9a-f]{6}$/i.test(settings.bg) ? settings.bg : '#2B2D31';
@@ -1045,6 +1129,7 @@ function openSettings() {
       <kbd>P</kbd><span>Dừng / chạy GIF đang chọn</span><kbd>← →</kbd><span>GIF đang chọn: lùi / tới 1 frame</span>
       <kbd>Ctrl + kéo</kbd><span>Xoay ảnh đang chọn</span><kbd>Ctrl+Shift + kéo ngang</kbd><span>Scale ảnh đang chọn</span>
       <kbd>Alt+Shift + kéo ngang / dọc</kbd><span>Lật trái phải / lật trên dưới</span>
+      <kbd>Ctrl+Shift+Alt + kéo ngang</kbd><span>Độ rõ của ảnh / nền group / cả cửa sổ (kéo trên nền trống)</span>
       <kbd>Ctrl+F</kbd><span>Toàn màn hình</span><kbd>Ctrl+T</kbd><span>Luôn nằm trên</span>
       <kbd>Ctrl+Z / Ctrl+Y</kbd><span>Hoàn tác / làm lại</span><kbd>Ctrl+D</kbd><span>Nhân đôi</span>
     </div></div>`);
@@ -1136,7 +1221,7 @@ window.addEventListener('keydown', (e) => {
   if (c === 'KeyT') return go('addText');
   if (c === 'KeyA') return go(e.shiftKey ? 'arrow2' : 'arrow');
   if (c === 'KeyP') return go('gifToggle');
-  if (!e.shiftKey && (c === 'ArrowLeft' || c === 'ArrowRight') && sel.length && selItems().every(isGif)) { e.preventDefault(); return gifStep(c === 'ArrowLeft' ? -1 : 1); }
+  if (!e.shiftKey && (c === 'ArrowLeft' || c === 'ArrowRight') && sel.length && selItems().every(isAnim)) { e.preventDefault(); return gifStep(c === 'ArrowLeft' ? -1 : 1); }
   if (c === 'KeyH') return go('flipH');
   if (c === 'KeyV') return go('flipV');
   if (c === 'BracketLeft') return go('rotL');

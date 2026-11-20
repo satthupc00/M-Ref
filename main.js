@@ -3,8 +3,8 @@ const path = require('path');
 const fs = require('fs');
 
 const APP_TITLE = 'M Ref';
-const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'];
-const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp' };
+const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'mp4', 'webm', 'mov', 'm4v'];
+const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime' };
 
 let win = null;
 let forceClose = false;
@@ -100,7 +100,7 @@ ipcMain.handle('save-file', async (_e, p, data, name) => {
   return p;
 });
 ipcMain.handle('pick-images', async () => {
-  const r = await dialog.showOpenDialog(win, { title: 'Thêm ảnh', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Ảnh', extensions: IMAGE_EXT }] });
+  const r = await dialog.showOpenDialog(win, { title: 'Thêm ảnh / video', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Ảnh và video', extensions: IMAGE_EXT }] });
   if (r.canceled) return [];
   const out = [];
   for (const f of r.filePaths) {
@@ -110,15 +110,27 @@ ipcMain.handle('pick-images', async () => {
   }
   return out;
 });
-ipcMain.handle('fetch-image', async (_e, url) => {
-  try {
-    if (!/^https?:\/\//i.test(url)) return null;
-    const res = await net.fetch(url);
-    const mime = (res.headers.get('content-type') || '').split(';')[0].trim();
-    if (!res.ok || !/^image\/(png|jpeg|gif|webp|bmp)$/.test(mime)) return null;
-    return { name: decodeURIComponent(new URL(url).pathname.split('/').pop() || 'image'), mime, data: Buffer.from(await res.arrayBuffer()) };
-  } catch { return null; }
-});
+const MEDIA_RE = /^(image\/(png|jpeg|gif|webp|bmp)|video\/(mp4|webm|quicktime|x-m4v))$/;
+const MAX_FETCH = 500 * 1024 * 1024;
+async function fetchMedia(url, depth) {
+  if (!/^https?:\/\//i.test(url)) return null;
+  const res = await net.fetch(url);
+  if (!res.ok) return null;
+  const mime = (res.headers.get('content-type') || '').split(';')[0].trim();
+  if (MEDIA_RE.test(mime)) {
+    if (+(res.headers.get('content-length') || 0) > MAX_FETCH) return null;
+    return { name: decodeURIComponent(new URL(url).pathname.split('/').pop() || 'media'), mime, data: Buffer.from(await res.arrayBuffer()) };
+  }
+  // Kéo 1 pin từ Pinterest: trang web của pin chứa link video mp4 / ảnh gốc
+  if (depth || mime !== 'text/html' || !/(^|\.)(pinterest\.[a-z.]+|pin\.it)$/i.test(new URL(res.url || url).hostname)) return null;
+  const html = (await res.text()).replace(/\\u002F/gi, '/').replace(/\\\//g, '/');
+  const vids = [...new Set(html.match(/https:\/\/v1\.pinimg\.com\/videos\/[^"'\\\s]+?\.mp4/g) || [])];
+  vids.sort((a, b) => (parseInt((b.match(/(\d+)p/) || [])[1] || 0, 10)) - (parseInt((a.match(/(\d+)p/) || [])[1] || 0, 10)));
+  for (const v of vids.slice(0, 3)) { const r = await fetchMedia(v, 1).catch(() => null); if (r) return r; }
+  const og = html.match(/<meta[^>]+property="og:image"[^>]+content="([^"]+)"/i);
+  return og ? fetchMedia(og[1].replace(/&amp;/g, '&'), 1).catch(() => null) : null;
+}
+ipcMain.handle('fetch-image', async (_e, url) => { try { return await fetchMedia(String(url), 0); } catch { return null; } });
 
 ipcMain.on('always-on-top', (_e, b) => { if (win) win.setAlwaysOnTop(!!b); settings.alwaysOnTop = !!b; saveSettings(); });
 ipcMain.on('opacity', (_e, v) => { v = Math.min(1, Math.max(0.2, +v || 1)); if (win) win.setOpacity(v); settings.opacity = v; saveSettings(); });
