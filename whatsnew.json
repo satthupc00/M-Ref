@@ -1,14 +1,11 @@
 {
-  "version": "1.0.4",
+  "version": "1.0.5",
   "date": "2026-11-20",
   "new": [
-    "Màn hình bắt đầu khi mở app: tạo bảng mới, mở file, hoặc mở lại 1 trong 10 file gần đây (có ảnh xem trước)",
-    "Mục File gần đây trong menu chuột phải"
+    "Ảnh GIF: chuột phải chọn Dừng GIF / Chạy GIF (hoặc phím P)",
+    "Ảnh GIF đang chọn: phím mũi tên trái / phải để lùi / tới từng frame",
+    "Đang xoay ảnh, đè thêm Shift để xoay theo nấc 15°"
   ],
-  "improved": [
-    "Chọn cả group chỉ hiện viền quanh nền group, không còn khung 8 chấm bên trong",
-    "Màu chữ đổi ngay trong lúc đang chọn màu tự do",
-    "Mũi tên nối thẳng vào ảnh nằm trong group, không dừng ở mép group"
-  ],
+  "improved": [],
   "fixed": []
 }

@@ -74,6 +74,7 @@ function makeEl(it) {
   el.className = 'item ' + it.type; el.dataset.id = it.id;
   if (it.type === 'image') {
     const img = document.createElement('img'); img.draggable = false;
+    img.addEventListener('load', () => { el._t0 = performance.now(); });
     const a = assets.get(it.asset); if (a) img.src = a.url;
     el.appendChild(img);
   } else {
@@ -86,7 +87,7 @@ function makeEl(it) {
 function place(it, el) {
   el.style.left = it.cx + 'px'; el.style.top = it.cy + 'px';
   el.style.transform = `translate(-50%,-50%) rotate(${it.rot}deg) scale(${it.fx ? -1 : 1},${it.fy ? -1 : 1})`;
-  if (it.type === 'image') { el.style.width = it.w + 'px'; el.style.height = it.h + 'px'; }
+  if (it.type === 'image') { el.style.width = it.w + 'px'; el.style.height = it.h + 'px'; gifSync(it, el); }
   else {
     el.style.fontSize = it.size + 'px'; el.style.color = it.color;
     if (editingId !== it.id && el._html !== it.html) { el.innerHTML = it.html; el._html = it.html; }
@@ -257,6 +258,81 @@ async function addImages(list, at) {
   for (const it of added) { it.cx = x + it.w / 2; it.cy = at.y; x += it.w + gap; doc.items.push(it); }
   sel = added.map((i) => i.id); selArrow = null;
   commit(); render();
+}
+/* ---------- GIF: dừng / chạy / xem từng frame ---------- */
+const isGif = (it) => it.type === 'image' && (assets.get(it.asset) || {}).mime === 'image/gif';
+function gifInit(it, el) {
+  if (el._gif) return el._gif.ready;
+  const a = assets.get(it.asset), g = el._gif = { i: 0, playing: false, timer: 0, token: 0 };
+  g.ready = (async () => {
+    g.dec = new ImageDecoder({ data: await a.blob.arrayBuffer(), type: 'image/gif' });
+    await g.dec.tracks.ready; await g.dec.completed;
+    g.n = g.dec.tracks.selectedTrack.frameCount; g.durs = [];
+    for (let i = 0; i < g.n; i++) { const { image } = await g.dec.decode({ frameIndex: i }); g.durs.push(Math.max(20, (image.duration || 100000) / 1000)); image.close(); }
+    g.cv = document.createElement('canvas'); g.cv.width = a.w; g.cv.height = a.h;
+    return g;
+  })();
+  g.ready.catch(() => { el._gif = null; });
+  return g.ready;
+}
+async function gifShow(el, i) {
+  const g = el._gif, { image } = await g.dec.decode({ frameIndex: i }), x = g.cv.getContext('2d');
+  x.clearRect(0, 0, g.cv.width, g.cv.height); x.drawImage(image, 0, 0, g.cv.width, g.cv.height); image.close();
+  g.i = i;
+  if (!g.cv.parentNode) { el.appendChild(g.cv); el.querySelector('img').style.display = 'none'; }
+}
+function gifStop(g) { g.token++; clearTimeout(g.timer); g.playing = false; }
+function gifPlay(el) {
+  const g = el._gif; gifStop(g); g.playing = true;
+  const tk = g.token, step = async () => {
+    if (tk !== g.token) return;
+    const i = (g.i + 1) % g.n;
+    try { await gifShow(el, i); } catch { return; }
+    if (tk === g.token) g.timer = setTimeout(step, g.durs[i]);
+  };
+  g.timer = setTimeout(step, g.durs[g.i] || 100);
+}
+function gifSync(it, el) {
+  if (!isGif(it)) return;
+  const g0 = el._gif;
+  if (it.paused) {
+    gifInit(it, el).then((g) => {
+      const cur = item(it.id); if (!cur || !cur.paused || els.get(it.id) !== el) return;
+      gifStop(g);
+      const f = clamp(cur.frame | 0, 0, g.n - 1);
+      if (!(g.cv.parentNode && g.i === f)) return gifShow(el, f);
+    }).catch(() => {});
+  } else if (g0 && g0.cv && g0.cv.parentNode && !g0.playing) gifPlay(el);
+}
+function gifNow(el, g) {                       // frame đang hiện (ước lượng theo thời gian nếu GIF đang tự chạy)
+  if (g.cv.parentNode) return g.i;
+  let t = (performance.now() - (el._t0 || 0)) % g.durs.reduce((a, b) => a + b, 0), f = 0;
+  while (f < g.n - 1 && t >= g.durs[f]) { t -= g.durs[f]; f++; }
+  return f;
+}
+async function gifToggle() {
+  const gs = selItems().filter(isGif); if (!gs.length) return;
+  const pause = gs.some((i) => !i.paused);
+  try {
+    for (const it of gs) {
+      if (!pause) { it.paused = false; delete it.frame; continue; }
+      if (it.paused) continue;
+      const el = els.get(it.id), g = await gifInit(it, el);
+      it.frame = gifNow(el, g); it.paused = true;
+    }
+  } catch { return toast('Không đọc được các frame của GIF này'); }
+  commit(); render();
+}
+async function gifStep(dir) {
+  const gs = selItems().filter(isGif); if (!gs.length) return;
+  try {
+    for (const it of gs) {
+      const el = els.get(it.id), g = await gifInit(it, el);
+      it.frame = ((it.paused ? it.frame | 0 : gifNow(el, g)) + dir + g.n) % g.n; it.paused = true;
+    }
+  } catch { return toast('Không đọc được các frame của GIF này'); }
+  commit(); render();
+  const f = gs[0], g = els.get(f.id)._gif; if (g && g.n) toast(`Frame ${f.frame + 1} / ${g.n}`);
 }
 const isImageFile = (f) => /^image\/(png|jpeg|gif|webp|bmp)$/.test(f.type) || /\.(png|jpe?g|gif|webp|bmp)$/i.test(f.name);
 const viewCenter = () => s2w(innerWidth / 2, innerHeight / 2);
@@ -536,7 +612,7 @@ function parseFile(u8) {
   const d = data.doc || {};
   const items = (d.items || []).filter((i) => i && (i.type === 'text' || (i.type === 'image' && newAssets.has(String(i.asset))))).map((i) => {
     const o = { id: String(i.id), type: i.type, cx: num(i.cx, 0), cy: num(i.cy, 0), w: Math.max(1, num(i.w, 100)), h: Math.max(1, num(i.h, 100)), rot: num(i.rot, 0), fx: !!i.fx, fy: !!i.fy, group: i.group ? String(i.group) : null };
-    if (i.type === 'image') o.asset = String(i.asset);
+    if (i.type === 'image') { o.asset = String(i.asset); if (i.paused) { o.paused = true; o.frame = Math.max(0, num(i.frame, 0) | 0); } }
     else { o.html = sanitize(String(i.html || '')); o.size = clamp(num(i.size, 22), 4, 4000); o.color = /^#[0-9a-f]{3,8}$/i.test(i.color) ? i.color : '#E8E9EC'; }
     return o;
   });
@@ -722,7 +798,7 @@ stage.addEventListener('pointermove', (e) => {
     d.moved = true; renderOverlays();
   } else if (d.type === 'rotate') {
     let deg = (Math.atan2(w.y - d.cy, w.x - d.cx) - d.a0) * 180 / Math.PI;
-    if (e.shiftKey && !e.ctrlKey) deg = Math.round(deg / 15) * 15;
+    if (e.shiftKey) deg = d.start.length === 1 ? Math.round((d.start[0].rot + deg) / 15) * 15 - d.start[0].rot : Math.round(deg / 15) * 15;
     for (const s of d.start) {
       const p = rotv(s.cx - d.cx, s.cy - d.cy, deg);
       s.it.cx = d.cx + p.x; s.it.cy = d.cy + p.y; s.it.rot = s.rot + deg;
@@ -824,7 +900,7 @@ document.addEventListener('paste', (e) => {
 const CMD = {
   open: openFile, home: showWelcome, save: () => save(false), saveAs: () => save(true), newBoard,
   addImages: async () => addImages(await api.pickImages(), viewCenter()),
-  addText: () => addText(s2w(lastMouse.x, lastMouse.y)), arrow: () => startLink(false), arrow2: () => startLink(true), arrowBoth: toggleArrowBoth,
+  addText: () => addText(s2w(lastMouse.x, lastMouse.y)), arrow: () => startLink(false), arrow2: () => startLink(true), arrowBoth: toggleArrowBoth, gifToggle,
   alL: () => alignCmd('l'), alCH: () => alignCmd('ch'), alR: () => alignCmd('r'), alT: () => alignCmd('t'), alCV: () => alignCmd('cv'), alB: () => alignCmd('b'),
   dH: () => alignCmd('dh'), dV: () => alignCmd('dv'), pack,
   flipH: () => flip('h'), flipV: () => flip('v'), rotL: () => rotateBy(-90), rotR: () => rotateBy(90), reset: resetXf,
@@ -855,6 +931,7 @@ function menuSpec() {
     { label: 'Thêm chữ', cmd: 'addText', key: 'T' },
     { label: 'Tạo mũi tên nối', cmd: 'arrow', key: 'A', off: n !== 1 },
     { label: 'Tạo mũi tên 2 chiều', cmd: 'arrow2', key: 'Shift+A', off: n !== 1 },
+    ...(selItems().some(isGif) ? [{ label: selItems().filter(isGif).some((i) => !i.paused) ? 'Dừng GIF' : 'Chạy GIF', cmd: 'gifToggle', key: 'P' }] : []),
     ...(selArrow ? [{ label: 'Mũi tên này 2 chiều', cmd: 'arrowBoth', chk: !!(doc.arrows.find((a) => a.id === selArrow) || {}).both }] : []), S,
     { label: 'Căn chỉnh', off: !multi, sub: [
       { label: 'Căn trái', cmd: 'alL' }, { label: 'Căn giữa ngang', cmd: 'alCH' }, { label: 'Căn phải', cmd: 'alR' }, S,
@@ -964,7 +1041,8 @@ function openSettings() {
       <kbd>Lăn chuột</kbd><span>Phóng to / thu nhỏ</span><kbd>Chuột giữa / Space + kéo</kbd><span>Di chuyển khung nhìn</span>
       <kbd>Bấm đúp vào ảnh</kbd><span>Phóng ảnh vừa màn hình (bấm đúp lần nữa để quay lại)</span>
       <kbd>Ctrl + phím mũi tên</kbd><span>Căn mép trái / phải / trên / dưới</span><kbd>Shift + bấm</kbd><span>Chọn thêm / bỏ chọn</span>
-      <kbd>Bấm vào nền group</kbd><span>Chọn cả group</span><kbd>Shift khi xoay</kbd><span>Xoay theo nấc 15°</span>
+      <kbd>Bấm vào nền group</kbd><span>Chọn cả group</span><kbd>Đang xoay, đè thêm Shift</kbd><span>Xoay theo nấc 15°</span>
+      <kbd>P</kbd><span>Dừng / chạy GIF đang chọn</span><kbd>← →</kbd><span>GIF đang chọn: lùi / tới 1 frame</span>
       <kbd>Ctrl + kéo</kbd><span>Xoay ảnh đang chọn</span><kbd>Ctrl+Shift + kéo ngang</kbd><span>Scale ảnh đang chọn</span>
       <kbd>Alt+Shift + kéo ngang / dọc</kbd><span>Lật trái phải / lật trên dưới</span>
       <kbd>Ctrl+F</kbd><span>Toàn màn hình</span><kbd>Ctrl+T</kbd><span>Luôn nằm trên</span>
@@ -1057,6 +1135,8 @@ window.addEventListener('keydown', (e) => {
   if (c === 'Delete' || c === 'Backspace') return go('del');
   if (c === 'KeyT') return go('addText');
   if (c === 'KeyA') return go(e.shiftKey ? 'arrow2' : 'arrow');
+  if (c === 'KeyP') return go('gifToggle');
+  if (!e.shiftKey && (c === 'ArrowLeft' || c === 'ArrowRight') && sel.length && selItems().every(isGif)) { e.preventDefault(); return gifStep(c === 'ArrowLeft' ? -1 : 1); }
   if (c === 'KeyH') return go('flipH');
   if (c === 'KeyV') return go('flipV');
   if (c === 'BracketLeft') return go('rotL');
