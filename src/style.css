@@ -39,6 +39,11 @@ button:not(:disabled):active{transform:scale(.95);transition-duration:.06s}
   transition:box-shadow var(--t-med) var(--ease-out)}
 .gpanel:hover{box-shadow:0 0 0 calc(1.5px*var(--iz,1)) #5A5F69}
 .gpanel.sel{box-shadow:0 0 0 calc(2px*var(--iz,1)) var(--sel)}
+.gpanel.hot{box-shadow:0 0 0 calc(3px*var(--iz,1)) var(--sel)}
+.gpanel.flash{animation:gflash .45s var(--ease-out)}
+@keyframes gflash{
+  0%{box-shadow:0 0 0 calc(3px*var(--iz,1)) var(--sel),0 0 0 calc(3px*var(--iz,1)) rgba(58,155,220,.7);filter:brightness(1.6)}
+  100%{box-shadow:0 0 0 calc(1px*var(--iz,1)) rgba(58,155,220,0),0 0 0 calc(18px*var(--iz,1)) rgba(58,155,220,0);filter:none}}
 
 #frame{position:absolute;left:0;top:0;border:1.5px solid var(--sel);pointer-events:none}
 .h{position:absolute;width:10px;height:10px;margin:-5.75px;background:var(--sel);border-radius:50%;pointer-events:auto;

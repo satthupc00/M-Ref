@@ -1,10 +1,10 @@
 {
-  "version": "1.0.6",
-  "date": "2026-11-20",
+  "version": "1.0.7",
+  "date": "2026-11-21",
   "new": [
-    "Hỗ trợ video MP4, WebM, MOV: kéo từ ổ cứng hoặc kéo pin video từ Pinterest; dừng / chạy bằng phím P, mũi tên trái / phải để tua từng khung hình",
-    "Chỉnh độ rõ (trong / đục): giữ Ctrl+Shift+Alt rồi kéo ngang trên ảnh, trên nền group, hoặc trên nền trống để chỉnh cả cửa sổ",
-    "Đổi màu nền group: chuột phải vào nền group, chọn Thay màu nền…"
+    "Đang kéo ảnh / GIF / video / chữ, đè thêm Ctrl rồi thả vào vùng của 1 group để cho vào group đó",
+    "Đang kéo ảnh trong group, đè thêm Ctrl rồi kéo ra ngoài vùng group để tách khỏi group",
+    "Vùng group hiện viền trong lúc kéo khi sắp có thay đổi, và nháy nhẹ 1 lần khi thả chuột"
   ],
   "improved": [],
   "fixed": []

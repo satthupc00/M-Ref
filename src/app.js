@@ -23,6 +23,7 @@ let settings = { alwaysOnTop: true, opacity: 1, bg: '#2B2D31', grid: true, textC
 let appVersion = '', whatsnew = null;
 let upd = { state: 'idle' }, manualCheck = false;
 let link = null;                   // {from, both} khi đang tạo mũi tên nối
+let dragEx = null, joinPlan = null, dragAreas = null;   // đang kéo + giữ Ctrl: ảnh đang kéo tạm tách khỏi vùng group, và kế hoạch vào / ra group
 let drag = null, spaceDown = false, lastMouse = { x: innerWidth / 2, y: innerHeight / 2 };
 
 const MEDIA_RE = /^(image\/(png|jpeg|gif|webp|bmp)|video\/(mp4|webm|quicktime|x-m4v))$/;
@@ -129,6 +130,31 @@ function groupBg(g) {
   const c = /^#[0-9a-f]{6}$/i.test(g.color || '') ? g.color : '#000000', n = parseInt(c.slice(1), 16);
   return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${g.opacity == null ? 1 : g.opacity})`;
 }
+function updateJoin(d, ctrl, cx, cy) {         // giữ Ctrl khi đang kéo: thả vào vùng group = vào group, kéo ra ngoài = rời group
+  if (!ctrl || !d.moved) { dragEx = null; joinPlan = null; return; }
+  const ids = new Set(d.start.map((s) => s.it.id)), p = s2w(cx, cy);
+  dragEx = ids; dragAreas = d.areas;
+  let target = null;
+  for (const g of doc.groups) {
+    const b = d.areas.get(g.id); if (!b || !doc.items.some((i) => i.group === g.id && !ids.has(i.id))) continue;
+    if (p.x >= b.x - GPAD && p.x <= b.x + b.w + GPAD && p.y >= b.y - GPAD && p.y <= b.y + b.h + GPAD) target = g.id;
+  }
+  const changes = [], hot = new Set();
+  for (const { it } of d.start) {
+    const rest = !!it.group && doc.items.some((i) => i.group === it.group && !ids.has(i.id));
+    const want = target || (rest ? null : it.group);
+    if (want === it.group) continue;
+    changes.push([it, want]); if (want) hot.add(want); if (rest) hot.add(it.group);
+  }
+  joinPlan = changes.length ? { changes, hot } : null;
+}
+function flashGroups(ids) {
+  for (const id of ids) {
+    const el = gbgEl.querySelector(`.gpanel[data-g="${id}"]`); if (!el) continue;
+    el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+    el.addEventListener('animationend', () => el.classList.remove('flash'), { once: true });
+  }
+}
 function wholeGroup() {                       // group đang được chọn trọn vẹn (bấm vào nền group)
   const g = selectedGroup();
   return g && doc.items.filter((i) => i.group === g.id).length === sel.length ? g : null;
@@ -136,16 +162,18 @@ function wholeGroup() {                       // group đang được chọn tr�
 function renderGroups() {
   const have = new Map([...gbgEl.children].map((el) => [el.dataset.g, el]));
   for (const g of doc.groups) {
-    const mem = doc.items.filter((i) => i.group === g.id);
+    let mem = doc.items.filter((i) => i.group === g.id);
     if (!mem.length) continue;
+    const frozen = dragEx && dragAreas && dragAreas.get(g.id) && mem.some((i) => !dragEx.has(i.id)) ? dragAreas.get(g.id) : null;
     let el = have.get(g.id);
     if (!el) { el = document.createElement('div'); el.className = 'gpanel'; el.dataset.g = g.id; gbgEl.appendChild(el); }
     have.delete(g.id);
-    const b = aabb(mem);
+    const b = frozen || aabb(mem);
     el.style.left = b.x - GPAD + 'px'; el.style.top = b.y - GPAD + 'px';
     el.style.width = b.w + GPAD * 2 + 'px'; el.style.height = b.h + GPAD * 2 + 'px';
     el.classList.toggle('sel', mem.every((i) => sel.includes(i.id)));
     el.style.backgroundColor = groupBg(g);
+    el.classList.toggle('hot', !!joinPlan && joinPlan.hot.has(g.id));
   }
   for (const el of have.values()) el.remove();
 }
@@ -819,7 +847,7 @@ stage.addEventListener('pointerdown', (e) => {
         if (e.shiftKey) setSel(ids.every((id) => sel.includes(id)) ? sel.filter((id) => !ids.includes(id)) : [...sel, ...ids]);
         else if (!ids.every((id) => sel.includes(id))) setSel(ids);
         else { selArrow = null; renderOverlays(); }
-        drag = { type: 'move', x: e.clientX, y: e.clientY, moved: false, start: start() };
+        drag = { type: 'move', x: e.clientX, y: e.clientY, moved: false, start: start(), areas: new Map(doc.groups.map((g) => [g.id, aabb(doc.items.filter((i) => i.group === g.id))])) };
       } else {
         if (!e.shiftKey) setSel([]);
         drag = { type: 'marquee', x: e.clientX, y: e.clientY, base: [...sel] };
@@ -843,6 +871,7 @@ stage.addEventListener('pointermove', (e) => {
     if (!d.moved && Math.hypot(dx, dy) < 3) return;
     d.moved = true;
     for (const s of d.start) { s.it.cx = s.cx + dx / view.z; s.it.cy = s.cy + dy / view.z; place(s.it, els.get(s.it.id)); }
+    updateJoin(d, e.ctrlKey, e.clientX, e.clientY);
     renderOverlays();
   } else if (d.type === 'mopacity') {
     const k = (e.clientX - d.x) / 300; let v = 1;
@@ -894,6 +923,11 @@ function endDrag(e) {
       else if (!el && d.target.closest && d.target.closest('.gpanel')) setSel(doc.items.filter((i) => i.group === d.target.closest('.gpanel').dataset.g).map((i) => i.id));
       openMenu(e.clientX, e.clientY);
     }
+  } else if (d.type === 'move') {
+    const plan = joinPlan; dragEx = null; joinPlan = null;
+    if (plan) for (const [it, want] of plan.changes) it.group = want;
+    if (d.moved || plan) { commit(); render(); }
+    if (plan) flashGroups(plan.hot);
   } else if (d.moved && d.type !== 'marquee') { commit(); render(); }
 }
 stage.addEventListener('pointerup', endDrag);
@@ -1129,6 +1163,7 @@ function openSettings() {
       <kbd>P</kbd><span>Dừng / chạy GIF đang chọn</span><kbd>← →</kbd><span>GIF đang chọn: lùi / tới 1 frame</span>
       <kbd>Ctrl + kéo</kbd><span>Xoay ảnh đang chọn</span><kbd>Ctrl+Shift + kéo ngang</kbd><span>Scale ảnh đang chọn</span>
       <kbd>Alt+Shift + kéo ngang / dọc</kbd><span>Lật trái phải / lật trên dưới</span>
+      <kbd>Đang kéo ảnh, đè thêm Ctrl</kbd><span>Thả vào vùng group để vào group, kéo ra ngoài để rời group</span>
       <kbd>Ctrl+Shift+Alt + kéo ngang</kbd><span>Độ rõ của ảnh / nền group / cả cửa sổ (kéo trên nền trống)</span>
       <kbd>Ctrl+F</kbd><span>Toàn màn hình</span><kbd>Ctrl+T</kbd><span>Luôn nằm trên</span>
       <kbd>Ctrl+Z / Ctrl+Y</kbd><span>Hoàn tác / làm lại</span><kbd>Ctrl+D</kbd><span>Nhân đôi</span>
@@ -1234,6 +1269,9 @@ window.addEventListener('keydown', (e) => {
     for (const it of selItems()) { it.cx += arrow[0] * k; it.cy += arrow[1] * k; }
     commit(); render();
   }
+});
+for (const ev of ['keydown', 'keyup']) window.addEventListener(ev, (e) => {
+  if (e.key === 'Control' && drag && drag.type === 'move') { updateJoin(drag, ev === 'keydown', lastMouse.x, lastMouse.y); renderOverlays(); }
 });
 window.addEventListener('keyup', (e) => { if (e.code === 'Space') { spaceDown = false; stage.classList.remove('pan'); } });
 
